@@ -81,7 +81,8 @@ class TalentNode:
         return f'{self.json['name']} ({self.id})'
 
 class TalentTree:
-    def __init__(self, raw_json):
+    def __init__(self, tree_type, raw_json):
+        self.tree_type = tree_type
         self.nodes = {talent.id:talent for node in raw_json if (talent := TalentNode(node)).is_valid()}
         for node in self.nodes.values():
             node.populate_next_1(self.nodes)
@@ -165,7 +166,12 @@ class TalentTree:
         go(initial)
         return result
 
-    def generate_builds(self, requirements={}, points=34):
+    def default_points(self):
+        return 13 if self.tree_type == 'hero' else 34
+
+    def generate_builds(self, requirements={}, points=None):
+        if points is None:
+            points = self.default_points()
         gate_builds = []
         for tier in self.gates:
             gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
@@ -184,15 +190,36 @@ class TalentTree:
 
         yield from go()
 
+    def count_builds(self, requirements={}, points=None):
+        if points is None:
+            points = self.default_points()
+        gate_builds = []
+        for tier in self.gates:
+            gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
+
+        def go(ix=0, pts=0, unlock=frozenset()):
+            if ix == len(self.gates):
+                return 1
+            else:
+                total = 0
+                for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+                    new_pts = pts + next_pts
+                    if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
+                        continue
+                    total += len(build_parts) * go(ix + 1, new_pts, next_unlock)
+                return total
+
+        return go()
+
 
 class TalentJSON:
     def __init__(self, file='talents.json'):
         with open(file, 'r') as f:
             raw = json.load(f)
         value = lambda tree: {
-            'class': TalentTree(tree['classNodes']),
-            'spec':  TalentTree(tree['specNodes']),
-            'hero':  TalentTree(tree['heroNodes']),
+            'class': TalentTree('class', tree['classNodes']),
+            'spec':  TalentTree('spec', tree['specNodes']),
+            'hero':  TalentTree('hero', tree['heroNodes']),
         }
         key = lambda tree: (
             tree['className'],
