@@ -49,9 +49,11 @@ class TalentNode:
         self.next_same = {node for node in self.next if node.req_points == self.req_points}
         self.next_diff = {node for node in self.next if node.req_points != self.req_points}
 
-    def get_sub_ids(self):
+    def get_choice_ids(self):
         if self.is_choice:
-            return [choice['id'] for choice in self.json['entries']]
+            # TODO: Perhaps there's a better way to handle a choice node where a choice entry is missing.
+            # self.generate_assignments should work fine for these special cases, though.
+            return [choice['id'] for choice in self.json['entries'] if 'id' in choice]
         else:
             return [self.id]
 
@@ -59,20 +61,20 @@ class TalentNode:
         if self.is_choice:
             assert self.max_ranks == 1, 'Multi-rank choice node'
             def check(assign):
-                for s_id, v in assign.items():
-                    if s_id not in reqs:
+                for c_id, v in assign.items():
+                    if c_id not in reqs:
                         continue
-                    lo, hi = reqs[s_id]
+                    lo, hi = reqs[c_id]
                     if not (lo <= v <= hi):
                         return False
                 return True
 
-            sub_ids = self.get_sub_ids()
-            assign = {s_id:0 for s_id in sub_ids}
+            choice_ids = self.get_choice_ids()
+            assign = {c_id:0 for c_id in choice_ids}
             if check(assign):
                 yield 0, False, assign
-            for s_id in sub_ids:
-                new_assign = assign | {s_id:1}
+            for c_id in choice_ids:
+                new_assign = assign | {c_id:1}
                 if check(new_assign):
                     yield 1, True, new_assign
         else:
@@ -130,16 +132,16 @@ class TalentTree:
         initial &= self.tiers[tier]
 
         result = {}
-        sub_ids = {s_id for node in self.tiers[tier] for s_id in node.get_sub_ids()}
-        build = {s_id:0 for s_id in sub_ids}
+        choice_ids = {c_id for node in self.tiers[tier] for c_id in node.get_choice_ids()}
+        build = {c_id:0 for c_id in choice_ids}
         # Restrict requirements only to the tier we're interested in
-        reqs = {s_id:v for s_id, v in reqs.items() if s_id in sub_ids}
+        reqs = {c_id:v for c_id, v in reqs.items() if c_id in choice_ids}
         visited = set()
 
         def go(queue, count=0, unlock=set(), subtree=None):
             if len(queue) == 0:
-                for s_id, (lo, hi) in reqs.items():
-                    if not (lo <= build[s_id] <= hi):
+                for c_id, (lo, hi) in reqs.items():
+                    if not (lo <= build[c_id] <= hi):
                         return
                 key = (count, frozenset(unlock))
                 build_ = build.copy()
@@ -159,14 +161,14 @@ class TalentTree:
                             # Already locked into another subtree, skip
                             continue
                         # Apply assignment
-                        for s_id, pts in assign.items():
-                            build[s_id] = pts
+                        for c_id, pts in assign.items():
+                            build[c_id] = pts
                         new_queue = rest + list(node.next_same) if full else rest
                         new_unlock = unlock | node.next_diff if full else unlock
                         go(new_queue, count + extra_count, new_unlock, new_subtree)
                         # Unapply assignment
-                        for s_id, _ in assign.items():
-                            build[s_id] = 0
+                        for c_id, _ in assign.items():
+                            build[c_id] = 0
                     visited.remove(node)
 
         go(initial)
@@ -217,7 +219,6 @@ class TalentTree:
 
         return go()
 
-
 class TalentJSON:
     class Helper:
         pass
@@ -240,9 +241,11 @@ class TalentJSON:
             class_attr = tokenize(class_)
             class_helper = getattr(self, class_attr, self.Helper())
             setattr(self, class_attr, class_helper)
+
             spec_attr = tokenize(spec)
             spec_helper = getattr(class_helper, spec_attr, self.Helper())
             setattr(class_helper, spec_attr, spec_helper)
+
             setattr(spec_helper, 'class_', vals['class'])
             setattr(spec_helper, 'spec', vals['spec'])
             setattr(spec_helper, 'hero', vals['hero'])
