@@ -20,6 +20,7 @@ class TalentNode:
         self.req_points = self.json['reqPoints'] if 'reqPoints' in self.json else 0
         self.is_choice = self.json['type'] == 'choice'
         self.max_ranks = self.json['maxRanks'] if 'maxRanks' in self.json else None
+        self.sub_tree = self.json['subTreeId'] if 'subTreeId' in self.json else None
 
     def __eq__(self, other):
         return self.id == other.id if isinstance(other, TalentNode) else False
@@ -96,14 +97,17 @@ class TalentTree:
         for node in self.nodes.values():
             node.populate_next_2(self.free)
 
+        # Pickable nodes by tier
         self.tiers = {}
         for node in self.nodes.values():
+            if node.is_free:
+                continue
             req = node.req_points
             if req in self.tiers:
                 self.tiers[req].add(node)
             else:
                 self.tiers[req] = {node}
-        
+
         self.gates = sorted(self.tiers.keys())
         assert len(self.gates) > 0 and self.gates[0] == 0, 'Initial tier requires non-zero points'
 
@@ -125,7 +129,7 @@ class TalentTree:
         reqs = {s_id:v for s_id, v in reqs.items() if s_id in sub_ids}
         visited = set()
 
-        def go(queue, count=0, unlock=frozenset()):
+        def go(queue, count=0, unlock=frozenset(), subtree=None):
             if len(queue) == 0:
                 for s_id, (lo, hi) in reqs.items():
                     if not (lo <= build[s_id] <= hi):
@@ -139,16 +143,20 @@ class TalentTree:
             else:
                 v, *rest = queue
                 if v in visited:
-                    go(rest, count, unlock)
+                    go(rest, count, unlock, subtree)
                 else:
                     visited.add(v)
                     for extra_count, full, assign in v.generate_assignments(reqs):
+                        new_subtree = subtree if extra_count == 0 else v.sub_tree
+                        if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
+                            # Already locked into another subtree, skip
+                            continue
                         # Apply assignment
                         for s_id, pts in assign.items():
                             build[s_id] = pts
                         new_queue = rest + list(v.next_same) if full else rest
                         new_unlock = unlock | v.next_diff if full else unlock
-                        go(new_queue, count + extra_count, new_unlock)
+                        go(new_queue, count + extra_count, new_unlock, new_subtree)
                         # Unapply assignment
                         for s_id, _ in assign.items():
                             build[s_id] = 0
@@ -158,22 +166,24 @@ class TalentTree:
         return result
 
     def generate_builds(self, requirements={}, points=34):
-        gates = []
+        gate_builds = []
         for tier in self.gates:
-            gates.append(LazyDict(self._search_graph, [tier, requirements]))
+            gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
 
-        # TODO: This could be more general
-        assert len(self.gates) == 3, "Can't handle trees without exactly 3 tiers"
-        for (pts1, g1_unlock), build1 in gates[0].at(frozenset()).items():
-            if pts1 != points and pts1 < self.gates[1]:
-                continue
-            for (pts2, g2_unlock), build2 in gates[1].at(g1_unlock).items():
-                if pts1 + pts2 != points and pts1 + pts2 < self.gates[2]:
-                    continue
-                for (pts3, _), build3 in gates[2].at(g2_unlock).items():
-                    if pts1 + pts2 + pts3 != points:
+        def go(ix=0, pts=0, unlock=frozenset()):
+            if ix == len(self.gates):
+                yield {}
+            else:
+                for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+                    new_pts = pts + next_pts
+                    if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
                         continue
-                    yield from (a | b | c for a in build1 for b in build2 for c in build3)
+                    for build_part in build_parts:
+                        for build in go(ix + 1, new_pts, next_unlock):
+                            yield build | build_part
+
+        yield from go()
+
 
 class TalentJSON:
     def __init__(self, file='talents.json'):
@@ -189,7 +199,7 @@ class TalentJSON:
             tree['specName'],
         )
         self._table = {key(tree):value(tree) for tree in raw}
-    
+
     def get_nodes(self, class_, spec, kind='spec'):
         return self._table[(class_, spec)][kind]
 
