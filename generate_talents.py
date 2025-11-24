@@ -127,12 +127,16 @@ class TalentTree:
     def __repr__(self):
         return str(set(self.nodes.values()))
 
+    def all_choice_ids(self, tier=None):
+        nodes = {node for tier in self.tiers.values() for node in tier} if tier is None else self.tiers[tier]
+        return {c_id for node in nodes for c_id in node.get_choice_ids()}
+
     def _search_graph(self, extra_entry, tier, reqs):
         initial = extra_entry | self.entry
         initial &= self.tiers[tier]
 
         result = {}
-        choice_ids = {c_id for node in self.tiers[tier] for c_id in node.get_choice_ids()}
+        choice_ids = self.all_choice_ids(tier)
         build = {c_id:0 for c_id in choice_ids}
         # Restrict requirements only to the tier we're interested in
         reqs = {c_id:v for c_id, v in reqs.items() if c_id in choice_ids}
@@ -198,6 +202,9 @@ class TalentTree:
 
         yield from go()
 
+    def generate_profilesets(self, requirements={}, points=None):
+        return ProfilesetGenerator(self.generate_builds(requirements, points), self)
+
     def count_builds(self, requirements={}, points=None):
         if points is None:
             points = self.default_points()
@@ -253,8 +260,58 @@ class TalentJSON:
     def get_nodes(self, class_, spec, kind='spec'):
         return self._table[(class_, spec)][kind]
 
+class ProfilesetGenerator:
+    def __init__(self, generator, tree):
+        self.generator = generator
+        self.tree = tree
+        self.choice_ids = sorted(self.tree.all_choice_ids())
+        self.build_blueprint()
+
+    def build_blueprint(self):
+        blueprint = bytearray()
+        blueprint += b'profileset.'
+        self.name_ix = len(blueprint)
+        blueprint += b'0' * len(self.choice_ids)
+        blueprint += b'=' + bytes(self.tree.tree_type, encoding='utf-8') + b'_talents='
+        talent_ixs = []
+        for c_id in self.choice_ids:
+            blueprint += bytes(str(c_id), encoding='utf-8') + b':'
+            talent_ixs.append(len(blueprint))
+            blueprint += b'0/'
+        blueprint[-1] = ord('\n')
+        self.blueprint = blueprint
+        self.talent_ixs = talent_ixs
+
+    def fill_blueprint(self, build):
+        for offset, c_id in enumerate(self.choice_ids):
+            value = build[c_id]
+            assert 0 <= value < 10, 'Too many digits for the blueprint'
+            byte = ord('0') + value
+            self.blueprint[self.name_ix + offset] = byte
+            self.blueprint[self.talent_ixs[offset]] = byte
+        # TODO: Copy shouldn't be necessary
+        return self.blueprint.copy()
+
+    def items(self):
+        yield from map(self.fill_blueprint, self.generator)
+
+    # Returns if the limit was reached
+    def to_file(self, filename, split=None, limit=100000):
+        file_count = 0
+        file = None
+        limit_reached = False
+        for ix, bytes in enumerate(self.items()):
+            if ix >= limit:
+                limit_reached = True
+                break
+            if file is None or (split is not None and ix % split == 0):
+                if file:
+                    file.close()
+                file_count += 1
+                file = open(f'{filename}{file_count}.txt', 'wb')
+            file.write(bytes)
+        file.close()
+        return limit_reached
+
 if __name__ == '__main__':
-    # Testing
     talents = TalentJSON()
-    frost = talents.get_nodes('Mage', 'Frost')
-    frost_class = talents.get_nodes('Mage', 'Frost', 'class')
