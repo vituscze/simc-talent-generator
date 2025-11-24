@@ -16,18 +16,34 @@ class LazyDict:
         return self.data[key]
 
 class TalentNode:
+    class Choice:
+        def __init__(self, raw_json):
+            self.__dict__.update(raw_json)
+
+        def __repr__(self):
+            return f'{self.name} ({self.id})'
+
+        def __eq__(self, other):
+            return self.id == other.id if isinstance(other, self.Choice) else False
+
+        def __hash__(self):
+            return hash(self.id)
+
     def __init__(self, raw_json):
         self.json = raw_json
         self.id = self.json['id']
+        self.name = self.json['name']
         self.is_free = 'freeNode' in self.json
         self.is_entry = 'entryNode' in self.json
         self.req_points = self.json['reqPoints'] if 'reqPoints' in self.json else 0
         self.is_choice = self.json['type'] == 'choice'
         self.max_ranks = self.json['maxRanks'] if 'maxRanks' in self.json else None
         self.sub_tree = self.json['subTreeId'] if 'subTreeId' in self.json else None
+        # Some single nodes have additional empty entries, remove them
+        self.choices = [self.Choice(entry) for entry in self.json['entries'] if 'id' in entry]
 
     def __repr__(self):
-        return f'{self.json['name']} ({self.id})'
+        return f'{self.name} ({self.id})'
 
     def __eq__(self, other):
         return self.id == other.id if isinstance(other, TalentNode) else False
@@ -49,17 +65,10 @@ class TalentNode:
         self.next_same = {node for node in self.next if node.req_points == self.req_points}
         self.next_diff = {node for node in self.next if node.req_points != self.req_points}
 
-    def get_choice_ids(self):
-        if self.is_choice:
-            # TODO: Perhaps there's a better way to handle a choice node where a choice entry is missing.
-            # self.generate_assignments should work fine for these special cases, though.
-            return [choice['id'] for choice in self.json['entries'] if 'id' in choice]
-        else:
-            return [self.id]
-
     def generate_assignments(self, reqs):
+        # TODO: These could be merged, if the edge cases are properly handled
         if self.is_choice:
-            assert self.max_ranks == 1, 'Multi-rank choice node'
+            assert self.max_ranks == 1, 'Choice node with ranks'
             def check(assign):
                 for c_id, v in assign.items():
                     if c_id not in reqs:
@@ -69,21 +78,23 @@ class TalentNode:
                         return False
                 return True
 
-            choice_ids = self.get_choice_ids()
-            assign = {c_id:0 for c_id in choice_ids}
+            assign = {c.id:0 for c in self.choices}
             if check(assign):
                 yield 0, False, assign
-            for c_id in choice_ids:
+            for c_id in assign:
                 new_assign = assign | {c_id:1}
                 if check(new_assign):
                     yield 1, True, new_assign
         else:
+            # TODO: If the following happens in game, it looks like it only offers the first choice
+            # assert len(self.choices) == 1, 'Single node with choices'
             lo = 0; hi = self.max_ranks
-            if self.id in reqs:
-                r_lo, r_hi = reqs[self.id]
+            c = self.choices[0]
+            if c.id in reqs:
+                r_lo, r_hi = reqs[c.id]
                 lo = max(lo, r_lo); hi = min(hi, r_hi)
             for i in range(lo, hi + 1):
-                yield i, i == self.max_ranks, {self.id:i}
+                yield i, i == self.max_ranks, {c.id:i}
 
 class TalentTree:
     def __init__(self, tree_type, raw_json):
@@ -117,7 +128,10 @@ class TalentTree:
         self.gates = sorted(self.tiers.keys())
         assert len(self.gates) > 0 and self.gates[0] == 0, 'Initial tier requires non-zero points'
 
-        # Final sanity check that links don't skip an entire tier
+        choices = [choice for node in self.nodes.values() for choice in node.choices]
+        assert len(choices) == len(set(choices)), 'Choice ids not unique'
+
+        # A final sanity check that links don't skip an entire tier
         for node in self.nodes.values():
             ix_1 = self.gates.index(node.req_points)
             for n_node in node.next_diff:
@@ -127,9 +141,14 @@ class TalentTree:
     def __repr__(self):
         return str(set(self.nodes.values()))
 
+    def _tier_nodes(self, tier):
+        return {node for tier in self.tiers.values() for node in tier} if tier is None else self.tiers[tier]
+
+    def all_choices(self, tier=None):
+        return {choice for node in self._tier_nodes(tier) for choice in node.choices}
+
     def all_choice_ids(self, tier=None):
-        nodes = {node for tier in self.tiers.values() for node in tier} if tier is None else self.tiers[tier]
-        return {c_id for node in nodes for c_id in node.get_choice_ids()}
+        return {choice.id for choice in self.all_choices(tier)}
 
     def _search_graph(self, extra_entry, tier, reqs):
         initial = extra_entry | self.entry
@@ -138,8 +157,10 @@ class TalentTree:
         result = {}
         choice_ids = self.all_choice_ids(tier)
         build = {c_id:0 for c_id in choice_ids}
-        # Restrict requirements only to the tier we're interested in
-        reqs = {c_id:v for c_id, v in reqs.items() if c_id in choice_ids}
+        # Restrict requirements only to the tier we're interested in and set up intervals
+        # for single-digit requirements.
+        split = lambda v: (v, v) if isinstance(v, int) else v
+        reqs = {c_id:split(v) for c_id, v in reqs.items() if c_id in choice_ids}
         visited = set()
 
         def go(queue, count=0, unlock=set(), subtree=None):
@@ -171,7 +192,7 @@ class TalentTree:
                         new_unlock = unlock | node.next_diff if full else unlock
                         go(new_queue, count + extra_count, new_unlock, new_subtree)
                         # Unapply assignment
-                        for c_id, _ in assign.items():
+                        for c_id in assign:
                             build[c_id] = 0
                     visited.remove(node)
 
@@ -295,7 +316,7 @@ class ProfilesetGenerator:
     def items(self):
         yield from map(self.fill_blueprint, self.generator)
 
-    # Returns if the limit was reached
+    # Returns whether the limit was reached
     def to_file(self, filename, split=None, limit=100000):
         file_count = 0
         file = None
@@ -310,7 +331,8 @@ class ProfilesetGenerator:
                 file_count += 1
                 file = open(f'{filename}{file_count}.txt', 'wb')
             file.write(bytes)
-        file.close()
+        if file:
+            file.close()
         return limit_reached
 
 if __name__ == '__main__':
