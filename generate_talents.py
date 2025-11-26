@@ -210,13 +210,13 @@ class TalentTree:
             gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
 
         def go(ix=0, pts=0, unlock=frozenset()):
-            if ix == len(self.gates):
-                yield {}
-            else:
-                for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
-                    new_pts = pts + next_pts
-                    if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
-                        continue
+            for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+                new_pts = pts + next_pts
+                if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
+                    continue
+                if ix + 1 == len(self.gates):
+                    yield from build_parts
+                else:
                     for build_part in build_parts:
                         for build in go(ix + 1, new_pts, next_unlock):
                             yield build | build_part
@@ -234,16 +234,13 @@ class TalentTree:
             gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
 
         def go(ix=0, pts=0, unlock=frozenset()):
-            if ix == len(self.gates):
-                return 1
-            else:
-                total = 0
-                for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
-                    new_pts = pts + next_pts
-                    if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
-                        continue
-                    total += len(build_parts) * go(ix + 1, new_pts, next_unlock)
-                return total
+            total = 0
+            for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+                new_pts = pts + next_pts
+                if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
+                    continue
+                total += len(build_parts) * (1 if ix + 1 == len(self.gates) else go(ix + 1, new_pts, next_unlock))
+            return total
 
         return go()
 
