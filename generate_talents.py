@@ -196,7 +196,7 @@ class TalentTree:
                             build[c_id] = 0
                     visited.remove(node)
 
-        go(initial)
+        go(list(initial))
         return result
 
     def default_points(self):
