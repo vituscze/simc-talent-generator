@@ -1,3 +1,4 @@
+import collections
 import json
 
 def tokenize(name):
@@ -5,14 +6,13 @@ def tokenize(name):
     return ''.join(filter(lambda c: c == '_' or c.isalpha(), name.lower().replace(' ','_')))
 
 class LazyDict:
-    def __init__(self, lookup, extra_args=[]):
+    def __init__(self, lookup):
         self.lookup = lookup
-        self.extra_args = extra_args
         self.data = {}
 
     def at(self, key):
         if key not in self.data:
-            self.data[key] = self.lookup(key, *self.extra_args)
+            self.data[key] = self.lookup(key)
         return self.data[key]
 
 class TalentNode:
@@ -154,7 +154,7 @@ class TalentTree:
         initial = extra_entry | self.entry
         initial &= self.tiers[tier]
 
-        result = {}
+        result = collections.defaultdict(list)
         choice_ids = self.all_choice_ids(tier)
         build = {c_id:0 for c_id in choice_ids}
         # Restrict requirements only to the tier we're interested in and set up intervals
@@ -163,17 +163,12 @@ class TalentTree:
         reqs = {c_id:split(v) for c_id, v in reqs.items() if c_id in choice_ids}
         visited = set()
 
-        def go(queue, count=0, unlock=set(), subtree=None):
+        def go(queue, count=0, unlock=frozenset(), subtree=None):
             if len(queue) == 0:
                 for c_id, (lo, hi) in reqs.items():
                     if not (lo <= build[c_id] <= hi):
                         return
-                key = (count, frozenset(unlock))
-                build_ = build.copy()
-                if key in result:
-                    result[key].append(build_)
-                else:
-                    result[key] = [build_]
+                result[(count, unlock)].append(build.copy())
             else:
                 node, *rest = queue
                 if node in visited:
@@ -188,7 +183,7 @@ class TalentTree:
                         # Apply assignment
                         for c_id, pts in assign.items():
                             build[c_id] = pts
-                        new_queue = rest + list(node.next_same) if full else rest
+                        new_queue = rest + list(node.next_same - visited) if full else rest
                         new_unlock = unlock | node.next_diff if full else unlock
                         go(new_queue, count + extra_count, new_unlock, new_subtree)
                         # Unapply assignment
@@ -202,12 +197,15 @@ class TalentTree:
     def default_points(self):
         return 13 if self.tree_type == 'hero' else 34
 
+    def _get_lazy_dict(self, *args):
+        return LazyDict(lambda key: self._search_graph(key, *args))
+
     def generate_builds(self, requirements={}, points=None):
         if points is None:
             points = self.default_points()
         gate_builds = []
         for tier in self.gates:
-            gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
+            gate_builds.append(self._get_lazy_dict(tier, requirements))
 
         def go(ix=0, pts=0, unlock=frozenset()):
             for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
@@ -231,7 +229,7 @@ class TalentTree:
             points = self.default_points()
         gate_builds = []
         for tier in self.gates:
-            gate_builds.append(LazyDict(self._search_graph, [tier, requirements]))
+            gate_builds.append(self._get_lazy_dict(tier, requirements))
 
         def go(ix=0, pts=0, unlock=frozenset()):
             total = 0
