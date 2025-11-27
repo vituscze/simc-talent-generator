@@ -65,15 +65,15 @@ class TalentNode:
         self.next_same = {node for node in self.next if node.req_points == self.req_points}
         self.next_diff = {node for node in self.next if node.req_points != self.req_points}
 
-    def generate_assignments(self, reqs):
+    def generate_assignments(self, choice_reqs):
         # TODO: These could be merged, if the edge cases are properly handled
         if self.is_choice:
             assert self.max_ranks == 1, 'Choice node with ranks'
             def check(assign):
                 for c_id, v in assign.items():
-                    if c_id not in reqs:
+                    if c_id not in choice_reqs:
                         continue
-                    lo, hi = reqs[c_id]
+                    lo, hi = choice_reqs[c_id]
                     if not (lo <= v <= hi):
                         return False
                 return True
@@ -90,8 +90,8 @@ class TalentNode:
             # assert len(self.choices) == 1, 'Single node with choices'
             lo = 0; hi = self.max_ranks
             c = self.choices[0]
-            if c.id in reqs:
-                r_lo, r_hi = reqs[c.id]
+            if c.id in choice_reqs:
+                r_lo, r_hi = choice_reqs[c.id]
                 lo = max(lo, r_lo); hi = min(hi, r_hi)
             for i in range(lo, hi + 1):
                 yield i, i == self.max_ranks, {c.id:i}
@@ -141,32 +141,42 @@ class TalentTree:
     def __repr__(self):
         return str(set(self.nodes.values()))
 
-    def _tier_nodes(self, tier):
+    def all_nodes(self, tier=None):
         return {node for tier in self.tiers.values() for node in tier} if tier is None else self.tiers[tier]
 
+    def all_node_ids(self, tier=None):
+        return {node.id for node in self.all_nodes(tier)}
+
     def all_choices(self, tier=None):
-        return {choice for node in self._tier_nodes(tier) for choice in node.choices}
+        return {choice for node in self.all_nodes(tier) for choice in node.choices}
 
     def all_choice_ids(self, tier=None):
         return {choice.id for choice in self.all_choices(tier)}
 
-    def _search_graph(self, extra_entry, tier, reqs):
+    def _search_graph(self, extra_entry, tier, choice_reqs, node_reqs):
         initial = extra_entry | self.entry
         initial &= self.tiers[tier]
 
-        result = collections.defaultdict(list)
         choice_ids = self.all_choice_ids(tier)
-        build = {c_id:0 for c_id in choice_ids}
+        node_ids = self.all_node_ids(tier)
         # Restrict requirements only to the tier we're interested in and set up intervals
         # for single-digit requirements.
         split = lambda v: (v, v) if isinstance(v, int) else v
-        reqs = {c_id:split(v) for c_id, v in reqs.items() if c_id in choice_ids}
+        choice_reqs = {c_id:split(v) for c_id, v in choice_reqs.items() if c_id in choice_ids}
+        node_reqs = {tuple(c.id for c in self.nodes[n_id].choices):split(v) for n_id, v in node_reqs.items() if n_id in node_ids}
+
+        result = collections.defaultdict(list)
+        build = {c_id:0 for c_id in choice_ids}
         visited = set()
 
         def go(queue, count=0, unlock=frozenset(), subtree=None):
             if len(queue) == 0:
-                for c_id, (lo, hi) in reqs.items():
+                for c_id, (lo, hi) in choice_reqs.items():
                     if not (lo <= build[c_id] <= hi):
+                        return
+                # TODO: Some of this could be filtered out earlier in TalentNode.generate_assignments.
+                for c_ids, (lo, hi) in node_reqs.items():
+                    if not (lo <= sum(build[c_id] for c_id in c_ids) <= hi):
                         return
                 result[(count, unlock)].append(build.copy())
             else:
@@ -175,7 +185,7 @@ class TalentTree:
                     go(rest, count, unlock, subtree)
                 else:
                     visited.add(node)
-                    for extra_count, full, assign in node.generate_assignments(reqs):
+                    for extra_count, full, assign in node.generate_assignments(choice_reqs):
                         new_subtree = subtree if extra_count == 0 else node.sub_tree
                         if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
                             # Already locked into another subtree, skip
@@ -200,12 +210,12 @@ class TalentTree:
     def _get_lazy_dict(self, *args):
         return LazyDict(lambda key: self._search_graph(key, *args))
 
-    def generate_builds(self, requirements={}, points=None):
+    def generate_builds(self, choice_requirements={}, node_requirements={}, points=None):
         if points is None:
             points = self.default_points()
         gate_builds = []
         for tier in self.gates:
-            gate_builds.append(self._get_lazy_dict(tier, requirements))
+            gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
 
         def go(ix=0, pts=0, unlock=frozenset()):
             for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
@@ -221,15 +231,15 @@ class TalentTree:
 
         yield from go()
 
-    def generate_profilesets(self, requirements={}, points=None):
-        return ProfilesetGenerator(self.generate_builds(requirements, points), self)
+    def generate_profilesets(self, choice_requirements={}, node_requirements={}, points=None):
+        return ProfilesetGenerator(self.generate_builds(choice_requirements, node_requirements, points), self)
 
-    def count_builds(self, requirements={}, points=None):
+    def count_builds(self, choice_requirements={}, node_requirements={}, points=None):
         if points is None:
             points = self.default_points()
         gate_builds = []
         for tier in self.gates:
-            gate_builds.append(self._get_lazy_dict(tier, requirements))
+            gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
 
         def go(ix=0, pts=0, unlock=frozenset()):
             total = 0
