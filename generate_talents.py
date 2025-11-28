@@ -1,4 +1,5 @@
 import collections
+import itertools
 import json
 
 def tokenize(name):
@@ -251,6 +252,30 @@ class TalentTree:
             return total
 
         return go()
+
+    def populate_globals(self, apex=True):
+        choices = sorted(self.all_choices(), key=lambda c: tokenize(c.name))
+        for name, iter in itertools.groupby(choices, key=lambda c: tokenize(c.name)):
+            assert name, 'Empty choice name'
+            group = list(iter)
+            if len(group) == 1:
+                globals()[name] = group[0].id
+            else:
+                for i, choice in enumerate(group):
+                    globals()[f'{name}_{i + 1}'] = choice.id
+        # Try to find the apex talents
+        if apex and self.tree_type == 'spec':
+            assert 20 in self.tiers, 'Spec with nonstandard last gate'
+            for n in self.entry & self.tiers[20]:
+                # So far it seems that every spec has exactly a single candidate,
+                # but check just in case something changes in the future
+                child = lambda n: list(n.next)[0]
+                if len(n.next) == 1 and len(child(n).next) == 1 and len(child(child(n)).next) == 0:
+                    globals()['apex_1'] = n.choices[0].id
+                    globals()['apex_2'] = child(n).choices[0].id
+                    globals()['apex_3'] = child(child(n)).choices[0].id
+                    break
+
 
 class TalentJSON:
     class Helper:
