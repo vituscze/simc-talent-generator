@@ -278,6 +278,13 @@ class TalentTree:
         '''
         return {choice.id for choice in self.all_choices(tier)}
 
+    def ordered_choice_ids(self) -> list[int]:
+        '''
+        Returns a list of all choice ids in a specific, unchanging order.
+        Used for profileset generation.
+        '''
+        return sorted(self.all_choice_ids())
+
     def _normalize_reqs(self, tier: int | None, choices: dict, nodes: dict) -> \
             tuple[dict[int, tuple[int, int]], dict[tuple[int, ...], tuple[int, int]]]:
         '''
@@ -438,6 +445,16 @@ class TalentTree:
 
         return go()
 
+    def decode_profileset(self, name: str) -> dict[Choice, int]:
+        '''
+        Decodes a profileset name back into a (human readable) mapping
+        from choices to spent points.
+        '''
+        to_choice = {c.id:c for c in self.all_choices()}
+        ordered = self.ordered_choice_ids()
+        assert len(name) == len(ordered), 'Invalid profileset name length'
+        return {to_choice[c_id]:v for c_id, v in zip(ordered, map(int, name))}
+
     def tokenized_names(self, apex=True) -> dict[str, Choice]:
         '''
         Returns a mapping from tokenized choice names to the actual choices.
@@ -544,7 +561,7 @@ class ProfilesetGenerator:
     def __init__(self, generator, tree: TalentTree):
         self.generator = generator
         self.tree = tree
-        self.choice_ids = sorted(self.tree.all_choice_ids())
+        self.choice_ids = self.tree.ordered_choice_ids()
         self.build_blueprint()
 
     def build_blueprint(self) -> None:
