@@ -11,15 +11,16 @@ class LazyDict:
         self.lookup = lookup
         self.data = {}
 
-    def at(self, key):
+    def __getitem__(self, key):
         if key not in self.data:
             self.data[key] = self.lookup(key)
         return self.data[key]
 
 class TalentNode:
     class Choice:
-        def __init__(self, raw_json):
+        def __init__(self, raw_json, node):
             self.__dict__.update(raw_json)
+            self.node = node
 
         def __repr__(self):
             return f'{self.name} ({self.id})'
@@ -41,7 +42,7 @@ class TalentNode:
         self.max_ranks = self.json['maxRanks'] if 'maxRanks' in self.json else None
         self.sub_tree = self.json['subTreeId'] if 'subTreeId' in self.json else None
         # Some single nodes have additional empty entries, remove them
-        self.choices = [self.Choice(entry) for entry in self.json['entries'] if 'id' in entry]
+        self.choices = [self.Choice(entry, self) for entry in self.json['entries'] if 'id' in entry]
 
     def __repr__(self):
         return f'{self.name} ({self.id})'
@@ -99,6 +100,12 @@ class TalentNode:
 
 class TalentTree:
     def __init__(self, tree_type, raw_json):
+        # Make sure we can treat ids as actual ids.
+        is_unique = lambda vals: len(vals) == len(set(vals))
+        assert is_unique([node['id'] for node in raw_json if 'id' in node]), 'Node id not unique'
+        assert is_unique([choice['id'] for node in raw_json if 'id' in node
+                          for choice in node['entries'] if 'id' in choice]), 'Choice id not unique'
+
         self.tree_type = tree_type
         self.nodes = {talent.id:talent for node in raw_json if (talent := TalentNode(node)).is_valid()}
         for node in self.nodes.values():
@@ -129,9 +136,6 @@ class TalentTree:
         self.gates = sorted(self.tiers.keys())
         assert len(self.gates) > 0 and self.gates[0] == 0, 'Initial tier requires non-zero points'
 
-        choices = [choice for node in self.nodes.values() for choice in node.choices]
-        assert len(choices) == len(set(choices)), 'Choice ids not unique'
-
         # A final sanity check that links don't skip an entire tier
         for node in self.nodes.values():
             ix_1 = self.gates.index(node.req_points)
@@ -160,11 +164,14 @@ class TalentTree:
 
         choice_ids = self.all_choice_ids(tier)
         node_ids = self.all_node_ids(tier)
+
+        split = lambda v: (v, v) if isinstance(v, int) else v
+        get_id = lambda v: v if isinstance(v, int) else v.id
+        get_choices = lambda n_id: tuple(c.id for c in self.nodes[n_id].choices)
         # Restrict requirements only to the tier we're interested in and set up intervals
         # for single-digit requirements.
-        split = lambda v: (v, v) if isinstance(v, int) else v
-        choice_reqs = {c_id:split(v) for c_id, v in choice_reqs.items() if c_id in choice_ids}
-        node_reqs = {tuple(c.id for c in self.nodes[n_id].choices):split(v) for n_id, v in node_reqs.items() if n_id in node_ids}
+        choice_reqs = {get_id(c):split(v) for c, v in choice_reqs.items() if get_id(c) in choice_ids}
+        node_reqs = {get_choices(get_id(n)):split(v) for n, v in node_reqs.items() if get_id(n) in node_ids}
 
         result = collections.defaultdict(list)
         build = {c_id:0 for c_id in choice_ids}
@@ -219,7 +226,7 @@ class TalentTree:
             gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
 
         def go(ix=0, pts=0, unlock=frozenset()):
-            for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+            for (next_pts, next_unlock), build_parts in gate_builds[ix][unlock].items():
                 new_pts = pts + next_pts
                 if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
                     continue
@@ -244,7 +251,7 @@ class TalentTree:
 
         def go(ix=0, pts=0, unlock=frozenset()):
             total = 0
-            for (next_pts, next_unlock), build_parts in gate_builds[ix].at(unlock).items():
+            for (next_pts, next_unlock), build_parts in gate_builds[ix][unlock].items():
                 new_pts = pts + next_pts
                 if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
                     continue
@@ -259,10 +266,10 @@ class TalentTree:
             assert name, 'Empty choice name'
             group = list(iter)
             if len(group) == 1:
-                globals()[name] = group[0].id
+                globals()[name] = group[0]
             else:
                 for i, choice in enumerate(group):
-                    globals()[f'{name}_{i + 1}'] = choice.id
+                    globals()[f'{name}_{i + 1}'] = choice
         # Try to find the apex talents
         if apex and self.tree_type == 'spec':
             assert 20 in self.tiers, 'Spec with nonstandard last gate'
@@ -271,18 +278,17 @@ class TalentTree:
                 # but check just in case something changes in the future
                 child = lambda n: list(n.next)[0]
                 if len(n.next) == 1 and len(child(n).next) == 1 and len(child(child(n)).next) == 0:
-                    globals()['apex_1'] = n.choices[0].id
-                    globals()['apex_2'] = child(n).choices[0].id
-                    globals()['apex_3'] = child(child(n)).choices[0].id
+                    globals()['apex_1'] = n.choices[0]
+                    globals()['apex_2'] = child(n).choices[0]
+                    globals()['apex_3'] = child(child(n)).choices[0]
                     break
-
 
 class TalentJSON:
     class Helper:
         pass
 
-    def __init__(self, file='talents.json'):
-        with open(file, 'r') as f:
+    def __init__(self, path='talents.json'):
+        with open(path, 'r') as f:
             raw = json.load(f)
         value = lambda tree: {
             'class': TalentTree('class', tree['classNodes']),
