@@ -455,7 +455,7 @@ class TalentTree:
         assert len(name) == len(ordered), 'Invalid profileset name length'
         return {to_choice[c_id]:v for c_id, v in zip(ordered, map(int, name))}
 
-    def tokenized_names(self, apex=True) -> dict[str, Choice]:
+    def tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
         '''
         Returns a mapping from tokenized choice names to the actual choices.
 
@@ -489,7 +489,7 @@ class TalentTree:
                     break
         return result
 
-    def populate_globals(self, apex=True) -> None:
+    def populate_globals(self, apex: bool=True) -> None:
         '''
         USE CAREFULLY! This method modifies the global environment.
 
