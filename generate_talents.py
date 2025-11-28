@@ -26,7 +26,7 @@ class TalentNode:
             return f'{self.name} ({self.id})'
 
         def __eq__(self, other):
-            return self.id == other.id if isinstance(other, self.Choice) else False
+            return isinstance(other, type(self)) and self.id == other.id
 
         def __hash__(self):
             return hash(self.id)
@@ -48,7 +48,7 @@ class TalentNode:
         return f'{self.name} ({self.id})'
 
     def __eq__(self, other):
-        return self.id == other.id if isinstance(other, TalentNode) else False
+        return isinstance(other, type(self)) and self.id == other.id
 
     def __hash__(self):
         return hash(self.id)
