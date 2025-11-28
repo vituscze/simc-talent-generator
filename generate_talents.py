@@ -158,23 +158,25 @@ class TalentTree:
     def all_choice_ids(self, tier=None):
         return {choice.id for choice in self.all_choices(tier)}
 
-    def _search_graph(self, extra_entry, tier, choice_reqs, node_reqs):
-        initial = extra_entry | self.entry
-        initial &= self.tiers[tier]
-
+    def _normalize_reqs(self, tier, choices, nodes):
         choice_ids = self.all_choice_ids(tier)
         node_ids = self.all_node_ids(tier)
 
         split = lambda v: (v, v) if isinstance(v, int) else v
-        get_id = lambda v: v if isinstance(v, int) else v.id
+        toid = lambda v: v if isinstance(v, int) else v.id
         get_choices = lambda n_id: tuple(c.id for c in self.nodes[n_id].choices)
         # Restrict requirements only to the tier we're interested in and set up intervals
         # for single-digit requirements.
-        choice_reqs = {get_id(c):split(v) for c, v in choice_reqs.items() if get_id(c) in choice_ids}
-        node_reqs = {get_choices(get_id(n)):split(v) for n, v in node_reqs.items() if get_id(n) in node_ids}
+        return {toid(c):split(v) for c, v in choices.items() if toid(c) in choice_ids}, \
+               {get_choices(toid(n)):split(v) for n, v in nodes.items() if toid(n) in node_ids}
 
+    def _search_graph(self, extra_entry, tier, raw_choice_reqs, raw_node_reqs):
+        initial = extra_entry | self.entry
+        initial &= self.tiers[tier]
+
+        choice_reqs, node_reqs = self._normalize_reqs(tier, raw_choice_reqs, raw_node_reqs)
         result = collections.defaultdict(list)
-        build = {c_id:0 for c_id in choice_ids}
+        build = {c_id:0 for c_id in self.all_choice_ids(tier)}
         visited = set()
 
         def go(queue, count=0, unlock=frozenset(), subtree=None):
