@@ -571,11 +571,50 @@ class Specialization:
     '''
     Represents a single specialization with its three talent trees:
     class_ tree, spec tree and hero tree.
+
+    Some convenience methods are provided that simply call the relevant
+    methods of TalentTree.
     '''
     def __init__(self, tree):
         self.class_ = TalentTree('class', tree['classNodes'])
         self.spec   = TalentTree('spec',  tree['specNodes'])
         self.hero   = TalentTree('hero',  tree['heroNodes'])
+
+    def generate_all_builds(self, choice_requirements: dict={},
+                            node_requirements: dict={}):
+        '''
+        See TalentTree.generate_builds
+        '''
+        for class_build in self.class_.generate_builds(choice_requirements, node_requirements):
+            for spec_build in self.spec.generate_builds(choice_requirements, node_requirements):
+                for hero_build in self.hero.generate_builds(choice_requirements, node_requirements):
+                    yield {'class': class_build, 'spec': spec_build, 'hero': hero_build}
+
+    def count_all_builds(self, choice_requirements: dict={},
+                         node_requirements: dict={}) -> int:
+        '''
+        See TalentTree.count_builds
+        '''
+        class_count = self.class_.count_builds(choice_requirements, node_requirements)
+        spec_count = self.spec.count_builds(choice_requirements, node_requirements)
+        hero_count = self.hero.count_builds(choice_requirements, node_requirements)
+        return class_count * spec_count * hero_count
+
+    def all_tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
+        '''
+        See TalentTree.tokenized_names
+        '''
+        return self.class_.tokenized_names(apex) \
+             | self.spec.tokenized_names(apex) \
+             | self.hero.tokenized_names(apex)
+
+    def populate_globals(self, apex: bool=True) -> None:
+        '''
+        USE CAREFULLY! This method modifies the global environment.
+
+        See TalentTree.populate_globals
+        '''
+        globals().update(self.all_tokenized_names(apex))
 
 class TalentJSON:
     '''
