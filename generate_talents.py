@@ -1,6 +1,7 @@
 import collections
 import itertools
 import json
+import math
 
 def tokenize(name: str) -> str:
     '''
@@ -106,10 +107,6 @@ class TalentNode:
             assert len(self.choices) == 1, f'{self.name} Single node without 1 choice'
         else:
             assert self.max_ranks == 1, 'Choice node with ranks'
-            # Technically, this script could support 3+ choice nodes quite easily,
-            # but TalentTree.count_builds would get quite a lot slower without
-            # using some extra tricks.
-            assert len(self.choices) == 2, 'Choice node without 2 choices'
 
     def __repr__(self) -> str:
         return f'{self.name} ({self.id})'
@@ -496,6 +493,7 @@ class TalentTree:
         gate_builds: list[GraphSearchDict] = []
         for tier in self.gates:
             gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
+        part_counts: dict[tuple[int, frozenset[TalentNode], int, frozenset[TalentNode]], int] = {}
 
         def go(ix: int=0, pts: int=0, unlock: frozenset[TalentNode]=frozenset()):
             total = 0
@@ -503,10 +501,11 @@ class TalentTree:
                 new_pts = pts + next_pts
                 if new_pts != points and (ix + 1 == len(self.gates) or new_pts < self.gates[ix + 1]):
                     continue
-                rec = 1 if ix + 1 == len(self.gates) else go(ix + 1, new_pts, next_unlock)
-                for _, choices in build_parts:
-                    # TODO: This would have to be changed to support choice nodes with 3+ choices
-                    total += rec * 2 ** len(choices)
+                key = (ix, unlock, next_pts, next_unlock)
+                if (part_count := part_counts.get(key)) is None:
+                    part_count = sum(math.prod(len(c) for c in choices) for _, choices in build_parts)
+                    part_counts[key] = part_count
+                total += part_count * (1 if ix + 1 == len(self.gates) else go(ix + 1, new_pts, next_unlock))
             return total
 
         return go()
