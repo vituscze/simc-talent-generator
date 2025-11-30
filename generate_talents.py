@@ -338,8 +338,8 @@ class TalentTree:
         and talent node requirements dict[int, tuple[int, int]]. Also filters out
         requirements which are not relevant to the given talent tree tier.
 
-        A single int requirement v is turned into a tuple (v, v). Choices are turned
-        into ids and talent nodes into tuples of their choice ids.
+        A single int requirement v is turned into a tuple (v, v). Choices and
+        talent nodes are turned into their ids.
 
         Returns a tuple containing the new choice requirements and the new node
         requirements, in this order.
