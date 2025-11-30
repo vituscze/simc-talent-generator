@@ -567,6 +567,16 @@ class TalentTree:
         '''
         globals().update(self.tokenized_names(apex))
 
+class Specialization:
+    '''
+    Represents a single specialization with its three talent trees:
+    class_ tree, spec tree and hero tree.
+    '''
+    def __init__(self, tree):
+        self.class_ = TalentTree('class', tree['classNodes'])
+        self.spec   = TalentTree('spec',  tree['specNodes'])
+        self.hero   = TalentTree('hero',  tree['heroNodes'])
+
 class TalentJSON:
     '''
     TalentJSON represents the parsed talent trees for all classes
@@ -594,32 +604,17 @@ class TalentJSON:
         '''
         Parses talent trees in the given JSON.
         '''
-        value = lambda tree: {
-            'class': TalentTree('class', tree['classNodes']),
-            'spec':  TalentTree('spec', tree['specNodes']),
-            'hero':  TalentTree('hero', tree['heroNodes']),
-        }
-        key = lambda tree: (
-            tree['className'],
-            tree['specName'],
-        )
-        self._table = {key(tree):value(tree) for tree in raw_json}
+        key = lambda tree: (tree['className'], tree['specName'])
+        self.table = {key(tree):Specialization(tree) for tree in raw_json}
         # Set up additional attributes for user convenience
-        for (class_, spec), vals in self._table.items():
+        for (class_, spec), val in self.table.items():
             class_attr = tokenize(class_)
             class_helper = getattr(self, class_attr, self.Helper())
             setattr(self, class_attr, class_helper)
 
             spec_attr = tokenize(spec)
-            spec_helper = getattr(class_helper, spec_attr, self.Helper())
+            spec_helper = getattr(class_helper, spec_attr, val)
             setattr(class_helper, spec_attr, spec_helper)
-
-            setattr(spec_helper, 'class_', vals['class'])
-            setattr(spec_helper, 'spec', vals['spec'])
-            setattr(spec_helper, 'hero', vals['hero'])
-
-    def get_nodes(self, class_: str, spec: str, kind: str='spec') -> TalentTree:
-        return self._table[(class_, spec)][kind]
 
 class ProfilesetGenerator:
     '''
