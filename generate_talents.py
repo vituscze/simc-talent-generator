@@ -509,6 +509,20 @@ class TalentTree:
 
         return go()
 
+    def encode_profile(self, build: dict[int, int]) -> tuple[str, str]:
+        '''
+        Encodes a build into a name and a relevant simc option.
+        Returns both as a tuple of strings.
+
+        This is similar to ProfileGenerator.fill_blueprint, but
+        more flexible (though not as optimized).
+        '''
+        ordered = [(c_id, build[c_id]) for c_id in self.ordered_choice_ids()]
+        assert all(0 <= pts <= 9 for _, pts in ordered), 'Too many digits for the profile name'
+        opt_name = self.tree_type + '_talents='
+        return ''.join(f'{pts}' for _, pts in ordered), \
+               opt_name + '/'.join(f'{c_id}:{pts}' for c_id, pts in ordered)
+
     def decode_profile(self, name: str) -> dict[Choice, int]:
         '''
         Decodes a profile name back into a (human readable) mapping
