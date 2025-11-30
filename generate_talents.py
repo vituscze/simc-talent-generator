@@ -376,8 +376,10 @@ class TalentTree:
 
         choice_reqs, node_reqs = self._normalize_reqs(tier, raw_choice_reqs, raw_node_reqs)
         total_nonempty_nodes = 0
+        node_assignments: dict[int, list[tuple[int, bool, Assignment]]] = {}
         for node in self.all_nodes(tier):
             node.apply_requirements(choice_reqs, node_reqs)
+            node_assignments[node.id] = list(node.generate_assignments())
             if not node.allows_empty:
                 total_nonempty_nodes += 1
 
@@ -398,7 +400,7 @@ class TalentTree:
                     go(rest, count, unlock, subtree, nonempty_nodes, normal_assign, choice_assign)
                 else:
                     visited.add(node)
-                    for extra_count, full, assign in node.generate_assignments():
+                    for extra_count, full, assign in node_assignments[node.id]:
                         new_subtree = subtree if extra_count == 0 else node.sub_tree
                         if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
                             # Already locked into another subtree, skip
