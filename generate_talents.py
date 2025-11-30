@@ -217,7 +217,7 @@ class TalentTree:
     a particular specialization.
 
     Several method are parametrized by requirements (generate_builds,
-    generate_profilesets and count_builds). A requirement specifies how
+    generate_profiles and count_builds). A requirement specifies how
     many points should be assigned to each choice and talent node. This can
     either be given as a single int (choice/node must be assigned exactly
     that many points) or as a tuple[int, int] (choice/node may be assigned
@@ -325,7 +325,7 @@ class TalentTree:
     def ordered_choice_ids(self) -> list[int]:
         '''
         Returns a list of all choice ids in a specific, unchanging order.
-        Used for profileset generation.
+        Used for profile generation.
         '''
         return sorted(self.all_choice_ids())
 
@@ -468,13 +468,14 @@ class TalentTree:
 
         yield from go()
 
-    def generate_profilesets(self, choice_requirements: dict={}, node_requirements: dict={},
-                             points: int | None=None) -> 'ProfilesetGenerator':
+    def generate_profiles(self, choice_requirements: dict={}, node_requirements: dict={},
+                          points: int | None=None, profileset: bool = True) -> 'ProfileGenerator':
         '''
-        Yields all valid talent builds through the profileset generator object.
-        See generate_builds and ProfilesetGenerator for more details.
+        Yields all valid talent builds through the profile generator object.
+        See generate_builds and ProfileGenerator for more details.
         '''
-        return ProfilesetGenerator(self.generate_builds(choice_requirements, node_requirements, points), self)
+        return ProfileGenerator(self.generate_builds(choice_requirements, node_requirements, points),
+                                self, profileset)
 
     def count_builds(self, choice_requirements: dict={}, node_requirements: dict={},
                      points : int | None=None) -> int:
@@ -508,14 +509,14 @@ class TalentTree:
 
         return go()
 
-    def decode_profileset(self, name: str) -> dict[Choice, int]:
+    def decode_profile(self, name: str) -> dict[Choice, int]:
         '''
-        Decodes a profileset name back into a (human readable) mapping
+        Decodes a profile name back into a (human readable) mapping
         from choices to spent points.
         '''
         to_choice = {c.id:c for c in self.all_choices()}
         ordered = self.ordered_choice_ids()
-        assert len(name) == len(ordered), 'Invalid profileset name length'
+        assert len(name) == len(ordered), 'Invalid profile name length'
         return {to_choice[c_id]:v for c_id, v in zip(ordered, map(int, name))}
 
     def tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
@@ -655,27 +656,28 @@ class TalentJSON:
             spec_helper = getattr(class_helper, spec_attr, val)
             setattr(class_helper, spec_attr, spec_helper)
 
-class ProfilesetGenerator:
+class ProfileGenerator:
     '''
-    ProfilesetGenerator servers to turn the talent builds provided by
-    TalentTree into profilesets in the simc format that can be written
-    to a file.
+    ProfileGenerator servers to turn the talent builds provided by
+    TalentTree into profiles (copies or profilesets) in the simc format
+    that can be written to a file.
     '''
-    def __init__(self, generator, tree: TalentTree):
+    def __init__(self, generator, tree: TalentTree, profileset: bool=True):
         self.generator = generator
         self.tree = tree
+        self.profileset = profileset
         self.choice_ids = self.tree.ordered_choice_ids()
         self.build_blueprint()
 
     def build_blueprint(self) -> None:
         '''
-        Creates a profileset bytearray with the correct format and node ids,
+        Creates a profile bytearray with the correct format and node ids,
         but with no actual assigned points.
 
         For each choice id, it stores the index of the corresponding byte in
         the bytearray in the talent_ixs array.
 
-        Length of the profileset name is given by the number of choice ids and
+        Length of the profile name is given by the number of choice ids and
         it starts at the index specified by name_ix.
 
         As an example, consider a profileset with 3 choice ids:
@@ -690,10 +692,11 @@ class ProfilesetGenerator:
         byte is given by talent_ixs[i].
         '''
         blueprint = bytearray()
-        blueprint += b'profileset.'
+        blueprint += b'profileset.' if self.profileset else b'copy='
         self.name_ix = len(blueprint)
         blueprint += b'0' * len(self.choice_ids)
-        blueprint += b'=' + bytes(self.tree.tree_type, encoding='utf-8') + b'_talents='
+        blueprint += b'=' if self.profileset else b'\n'
+        blueprint += bytes(self.tree.tree_type, encoding='utf-8') + b'_talents='
         talent_ixs = []
         for c_id in self.choice_ids:
             blueprint += bytes(str(c_id), encoding='utf-8') + b':'
@@ -705,7 +708,7 @@ class ProfilesetGenerator:
 
     def fill_blueprint(self, build: dict[int, int]) -> bytearray:
         '''
-        Fills the marked positions in the profileset blueprint as specified
+        Fills the marked positions in the profile blueprint as specified
         by the build. See build_blueprint for more details.
 
         Returns a copy of the filled blueprint.
@@ -721,20 +724,20 @@ class ProfilesetGenerator:
 
     def items(self):
         '''
-        Yields all profileset bytearrays.
+        Yields all profile bytearrays.
         '''
         yield from map(self.fill_blueprint, self.generator)
 
     def to_file(self, filename: str, split: int | None=None, limit: int=100000) -> bool:
         '''
-        Writes all profilesets to a file given by filename.
+        Writes all profiles to a file given by filename.
 
-        If split is specified, the profilesets are written to multiple files, each
-        containing no more than split profilesets. This can be useful for example
-        for Raidbots, which only allows 6399 profilesets in a single sim.
+        If split is specified, the profiles are written to multiple files, each
+        containing no more than split profiles. This can be useful for example
+        for Raidbots, which only allows 6399 profiles in a single sim.
         The file names are dervied from filename and a numeric suffix.
 
-        The limit parameter stops the generation after that many profilesets have
+        The limit parameter stops the generation after that many profiles have
         been generated.
 
         Returns whether the limit was reached.
