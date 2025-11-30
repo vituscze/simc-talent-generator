@@ -582,12 +582,18 @@ class TalentJSON:
     class Helper:
         pass
 
-    def __init__(self, path: str='talents.json'):
+    @classmethod
+    def from_file(cls, path: str='talents.json'):
         '''
         Opens and parses talent trees in the file specified by path.
         '''
         with open(path, 'r') as f:
-            raw = json.load(f)
+            return cls(json.load(f))
+
+    def __init__(self, raw_json):
+        '''
+        Parses talent trees in the given JSON.
+        '''
         value = lambda tree: {
             'class': TalentTree('class', tree['classNodes']),
             'spec':  TalentTree('spec', tree['specNodes']),
@@ -597,7 +603,7 @@ class TalentJSON:
             tree['className'],
             tree['specName'],
         )
-        self._table = {key(tree):value(tree) for tree in raw}
+        self._table = {key(tree):value(tree) for tree in raw_json}
         # Set up additional attributes for user convenience
         for (class_, spec), vals in self._table.items():
             class_attr = tokenize(class_)
@@ -717,4 +723,4 @@ class ProfilesetGenerator:
         return limit_reached
 
 if __name__ == '__main__':
-    talents = TalentJSON()
+    talents = TalentJSON.from_file()
