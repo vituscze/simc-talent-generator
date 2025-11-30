@@ -26,7 +26,7 @@ You can access any talent tree by using tokenized class and specialization names
 {Improved Flurry (108849), Deep Shatter (110258), ...}
 ```
 
-Class talents are accessed via `class_` (note the underscore) and hero talents via `hero`. By default, the talent simply shows you all the talent nodes contained within. The three main methods provided by the tree are: `count_builds`, `generate_builds` and `generate_profilesets`. The last one is discussed in a separate subsection.
+Class talents are accessed via `class_` (note the underscore) and hero talents via `hero`. By default, the talent simply shows you all the talent nodes contained within. The three main methods provided by the tree are: `count_builds`, `generate_builds` and `generate_profiles`. The last one is discussed in a separate subsection.
 
 ```py
 >>> talents.mage.frost.spec.count_builds()
@@ -92,18 +92,20 @@ Splintering Ray / Frigid Focus (103771)
 
 ### Generating Profilesets
 
-Once you are comfortable with the requirements (you can only realistically sim at most 100&nbsp;000 builds), you can use the `generate_profilesets` method to get a simc input:
+Once you are comfortable with the requirements (you can only realistically sim at most 100&nbsp;000 builds), you can use the `generate_profiles` method to get a simc input:
 
 ```py
 >>> frost.count_builds({ray_of_frost:0})
 53444
->>> frost.generate_profilesets({ray_of_frost:0}).to_file('talents')
+>>> frost.generate_profiles({ray_of_frost:0}).to_file('talents')
 False
 ```
 
 This will save all the generated profilesets to the file `talents1.txt`. Even with only 53&nbsp;444 builds, the file is already about 22 MiB large. For this reason, the `to_file` method limits the generation to 100&nbsp;000 builds by default. You can change this by providing the optional `limit` argument. If you reach this limit, the method returns `True`.
 
 If you don't want all profilesets to end up in a single file, you can also specify the `split` argument, which will only put as many as `split` profilesets into each file.
+
+You can also provide the optional argument `profileset=False` to generate copies instead.
 
 ## Integration
 
@@ -117,6 +119,6 @@ $ python -i generate_talents.py
 >>> frost.populate_globals()
 >>> frost.count_builds({ray_of_frost:0, glaciate:1, blizzard_1:1})
 15642
->>> frost.generate_profilesets({ray_of_frost:0, glaciate:1, blizzard_1:1}).to_file('talents')
+>>> frost.generate_profiles({ray_of_frost:0, glaciate:1, blizzard_1:1}).to_file('talents')
 False
 ```
