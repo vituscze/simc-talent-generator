@@ -615,6 +615,15 @@ class Specialization:
         hero_count = self.hero.count_builds(choice_requirements, node_requirements)
         return class_count * spec_count * hero_count
 
+    def encode_profile(self, build: dict[str, dict[int, int]]) -> \
+            tuple[tuple[str, str, str], ...]:
+        '''
+        See TalentTree.encode_profile
+        '''
+        return tuple(zip(self.class_.encode_profile(build['class']),
+                         self.spec.encode_profile(build['spec']),
+                         self.hero.encode_profile(build['hero'])))
+
     def all_tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
         '''
         See TalentTree.tokenized_names
