@@ -585,32 +585,20 @@ class TalentTree:
         globals().update(self.tokenized_names(apex))
 
 class Base64Reader:
-    BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    BASE64_MAP = {v:i for i,v in enumerate('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/')}
     BIT_WIDTH = 6
 
     def __init__(self, string: str):
-        self.string = string
-        self.bit = -1
-        self.pos = 0
-        self.byte = 0
+        self.values = [self.BASE64_MAP[c] for c in string]
+        self.bits = self._generate_bits()
 
-    def _next_byte(self):
-        if self.pos >= len(self.string):
-            self.byte = 0
-        else:
-            self.byte = self.BASE64.find(self.string[self.pos])
-            self.pos += 1
-            assert self.byte >= 0, 'Invalid base64 char'
+    def _generate_bits(self):
+        for v in self.values:
+            for i in range(self.BIT_WIDTH):
+                yield (v >> i) & 1
 
     def get_bits(self, size: int) -> int:
-        result = 0
-        for i in range(size):
-            self.bit += 1
-            if self.bit >= self.pos * self.BIT_WIDTH:
-                self._next_byte()
-            next_bit = (self.byte >> (self.bit % self.BIT_WIDTH)) & 1
-            result |= next_bit << i
-        return result
+        return sum(next(self.bits) << i for i in range(size))
 
 class Specialization:
     '''
