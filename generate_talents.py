@@ -43,10 +43,11 @@ class Choice:
     Typically, a talent node contains two choices if it's a choice node and a single
     choice otherwise, although there have been some unusual exceptions.
     '''
-    def __init__(self, raw_json, node: 'TalentNode'):
+    def __init__(self, raw_json, ix: int, node: 'TalentNode'):
         self.__dict__.update(raw_json)
         self.id: int = raw_json['id']
         self.name: str = raw_json['name']
+        self.ix = ix
         self.node = node
         assert raw_json['maxRanks'] == node.max_ranks, 'Node and choice maxRanks differ'
 
@@ -89,7 +90,7 @@ class TalentNode:
         self.max_ranks: int = self.json['maxRanks'] if 'maxRanks' in self.json else 0
         self.sub_tree: int | None = self.json['subTreeId'] if 'subTreeId' in self.json else None
         # Some single nodes have additional empty entries, remove them
-        self.choices = [Choice(entry, self) for entry in self.json['entries'] if 'id' in entry]
+        self.choices = [Choice(entry, ix, self) for ix, entry in enumerate(self.json['entries']) if 'id' in entry]
 
         # Bookkeeping for requirements
         self.min_assign: int = 0
@@ -583,6 +584,34 @@ class TalentTree:
         '''
         globals().update(self.tokenized_names(apex))
 
+class Base64Reader:
+    BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+    BIT_WIDTH = 6
+
+    def __init__(self, string: str):
+        self.string = string
+        self.bit = -1
+        self.pos = 0
+        self.byte = 0
+
+    def _next_byte(self):
+        if self.pos >= len(self.string):
+            self.byte = 0
+        else:
+            self.byte = self.BASE64.find(self.string[self.pos])
+            self.pos += 1
+            assert self.byte >= 0, 'Invalid base64 char'
+
+    def get_bits(self, size: int) -> int:
+        result = 0
+        for i in range(size):
+            self.bit += 1
+            if self.bit >= self.pos * self.BIT_WIDTH:
+                self._next_byte()
+            next_bit = (self.byte >> (self.bit % self.BIT_WIDTH)) & 1
+            result |= next_bit << i
+        return result
+
 class Specialization:
     '''
     Represents a single specialization with its three talent trees:
@@ -591,10 +620,69 @@ class Specialization:
     Some convenience methods are provided that simply call the relevant
     methods of TalentTree.
     '''
-    def __init__(self, tree):
-        self.class_ = TalentTree('class', tree['classNodes'])
-        self.spec   = TalentTree('spec',  tree['specNodes'])
-        self.hero   = TalentTree('hero',  tree['heroNodes'])
+    VERSION_BITS = 8
+    SPECIALIZATION_BITS = 16
+    TREE_HASH_BITS = 128
+    RANK_BITS = 6
+    CHOICE_BITS = 2
+
+    def __init__(self, raw_json):
+        self.json = raw_json
+        self.class_id = raw_json['classId']
+        self.spec_id = raw_json['specId']
+        self.class_ = TalentTree('class', raw_json['classNodes'])
+        self.spec = TalentTree('spec', raw_json['specNodes'])
+        self.hero = TalentTree('hero', raw_json['heroNodes'])
+        assert len(raw_json['subTreeNodes']) == 1, 'Nonstandard subtree nodes'
+        self.subtree_node = raw_json['subTreeNodes'][0]
+
+    def parse_talent_string(self, string: str) -> dict[Choice, int]:
+        reader = Base64Reader(string)
+        version = reader.get_bits(self.VERSION_BITS)
+        assert version == 2, 'Unsupported talent string version'
+        spec = reader.get_bits(self.SPECIALIZATION_BITS)
+        assert spec == self.spec_id, 'Talent string for different spec'
+        reader.get_bits(self.TREE_HASH_BITS)
+
+        build: dict[Choice, int] = {}
+        selected_subtree = None
+        all_nodes = {n.id:n for n in self.spec.all_nodes() | self.class_.all_nodes() | self.hero.all_nodes()}
+        node_order: list[int] = self.json['fullNodeOrder']
+        for node_id in node_order:
+            if reader.get_bits(1) == 0: # Not selected
+                continue
+            if reader.get_bits(1) == 0: # Not purchased
+                # This *should* be a free node and thus not present in all_nodes
+                assert node_id not in all_nodes, 'Non-purchased selectable node'
+                continue
+            if node_id == self.subtree_node['id']:
+                # Special handling of hero talent selection (the subtree node).
+                # It's a choice node that can't be partially ranked, so we skip
+                # the first two bits immediately.
+                reader.get_bits(2)
+                choice_ix = reader.get_bits(self.CHOICE_BITS)
+                assert choice_ix < len(self.subtree_node['entries']), 'Unknown hero tree'
+                selected_subtree = self.subtree_node['entries'][choice_ix]['traitSubTreeId']
+                continue
+            assert node_id in all_nodes, 'Unknown selected node'
+            node = all_nodes[node_id]
+            if reader.get_bits(1) == 1: # Partially ranked
+                rank = reader.get_bits(self.RANK_BITS)
+                assert 0 < rank < node.max_ranks, 'Partial rank invalid'
+            else:
+                rank = node.max_ranks
+
+            if reader.get_bits(1) == 1: # Choice
+                choice_ix = reader.get_bits(self.CHOICE_BITS)
+            else:
+                choice_ix = 0
+
+            choice = [c for c in node.choices if c.ix == choice_ix]
+            assert len(choice) == 1, 'Missing choice'
+            build[choice[0]] = rank
+
+        return {c:r for c, r in build.items() if c.node.sub_tree is None or c.node.sub_tree == selected_subtree}
+
 
     def generate_all_builds(self, choice_requirements: dict={},
                             node_requirements: dict={}):
