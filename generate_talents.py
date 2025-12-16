@@ -381,9 +381,9 @@ class TalentTree:
                 total_nonempty_nodes += 1
 
         result: GraphSearchResult = collections.defaultdict(list)
-        visited: set[TalentNode] = set()
 
-        def go(queue: list[TalentNode], count: int=0, unlock: frozenset[TalentNode]=frozenset(),
+        def go(queue: list[TalentNode], visited: set[TalentNode],
+               count: int=0, unlock: frozenset[TalentNode]=frozenset(),
                subtree: int | None=None, nonempty_nodes: int=0,
                normal_assign: Assignment=[], choice_assign: list[Assignment]=[]):
             if len(queue) == 0:
@@ -392,25 +392,22 @@ class TalentTree:
                 if nonempty_nodes == total_nonempty_nodes:
                     result[(count, unlock)].append((normal_assign, choice_assign))
             else:
-                node, *rest = queue
-                if node in visited:
-                    go(rest, count, unlock, subtree, nonempty_nodes, normal_assign, choice_assign)
-                else:
-                    visited.add(node)
-                    for extra_count, full, assign in node_assignments[node.id]:
-                        new_subtree = subtree if extra_count == 0 else node.sub_tree
-                        if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
-                            # Already locked into another subtree, skip
-                            continue
+                node = queue.pop()
+                for extra_count, full, assign in node_assignments[node.id]:
+                    new_subtree = subtree if extra_count == 0 else node.sub_tree
+                    if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
+                        # Already locked into another subtree, skip
+                        continue
 
-                        go(rest + list(node.next_same - visited) if full else rest, count + extra_count,
-                           unlock | node.next_diff if full else unlock, new_subtree,
-                           nonempty_nodes if node.allows_empty else nonempty_nodes + 1,
-                           normal_assign + assign if len(assign) == 1 else normal_assign,
-                           choice_assign + [assign] if len(assign) > 1 else choice_assign)
-                    visited.remove(node)
+                    go(queue + list(node.next_same - visited) if full else queue,
+                       visited | node.next_same if full else visited, count + extra_count,
+                       unlock | node.next_diff if full else unlock, new_subtree,
+                       nonempty_nodes if node.allows_empty else nonempty_nodes + 1,
+                       normal_assign + assign if len(assign) == 1 else normal_assign,
+                       choice_assign + [assign] if len(assign) > 1 else choice_assign)
+                queue.append(node)
 
-        go(list(initial))
+        go(list(initial), initial)
         return result
 
     def default_points(self) -> int:
@@ -468,7 +465,7 @@ class TalentTree:
         yield from go()
 
     def generate_profiles(self, choice_requirements: dict={}, node_requirements: dict={},
-                          points: int | None=None, profileset: bool = True) -> 'ProfileGenerator':
+                          points: int | None=None, profileset: bool=True) -> 'ProfileGenerator':
         '''
         Yields all valid talent builds through the profile generator object.
         See generate_builds and ProfileGenerator for more details.
