@@ -382,7 +382,7 @@ class TalentTree:
 
         result: GraphSearchResult = collections.defaultdict(list)
 
-        def go(queue: list[TalentNode], visited: set[TalentNode],
+        def go(queue: list[TalentNode], visited: frozenset[TalentNode],
                count: int=0, unlock: frozenset[TalentNode]=frozenset(),
                subtree: int | None=None, nonempty_nodes: int=0,
                normal_assign: Assignment=[], choice_assign: list[Assignment]=[]):
