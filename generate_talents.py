@@ -569,6 +569,7 @@ class TalentTree:
                     key = 'apex_3'
                 assert len(node.choices) == 1
                 result[key] = node.choices[0]
+            assert {'apex_1','apex_2','apex_3'} <= set(result), 'Incomplete apex talents'
         return result
 
     def populate_globals(self, apex: bool=True) -> None:
