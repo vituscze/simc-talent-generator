@@ -554,15 +554,21 @@ class TalentTree:
         # Try to find the apex talents
         if apex and self.tree_type == 'spec':
             assert 20 in self.tiers, 'Spec with nonstandard last gate'
-            for n in self.entry & self.tiers[20]:
-                # So far it seems that every spec has exactly a single candidate,
-                # but check just in case something changes in the future
-                child = lambda n: list(n.next)[0]
-                if len(n.next) == 1 and len(child(n).next) == 1 and len(child(child(n)).next) == 0:
-                    result['apex_1'] = n.choices[0]
-                    result['apex_2'] = child(n).choices[0]
-                    result['apex_3'] = child(child(n)).choices[0]
-                    break
+            candidates = self.entry & self.tiers[20]
+            assert len(candidates) == 1, 'More than one apex candidate'
+
+            def layers(depth: int, ns: set[TalentNode]) -> set[TalentNode]:
+                return ns if depth <= 0 else layers(depth - 1, ns | {n_node for node in ns for n_node in node.next})
+
+            for node in layers(2, candidates):
+                if node.is_entry:
+                    key = 'apex_1'
+                elif node.max_ranks == 2:
+                    key = 'apex_2'
+                else:
+                    key = 'apex_3'
+                assert len(node.choices) == 1
+                result[key] = node.choices[0]
         return result
 
     def populate_globals(self, apex: bool=True) -> None:
