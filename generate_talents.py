@@ -91,7 +91,7 @@ class TalentNode:
         self.sub_tree: int | None = self.json['subTreeId'] if 'subTreeId' in self.json else None
         # Some single nodes have additional empty entries, remove them
         self.entries = [TalentEntry(entry, self) for entry in self.json['entries'] if 'id' in entry]
-        self.entries.sort(key=lambda c: c.index)
+        self.entries.sort(key=lambda e: e.index)
 
         # Bookkeeping for requirements
         self.min_assign: int = 0
@@ -106,16 +106,16 @@ class TalentNode:
             # only lets you pick the first one.
             # TODO: Check if this is still the case
             self.entries = self.entries[:1]
-            assert len(self.entries) == 1, f'{self.name} Single node without entries'
+            assert len(self.entries) == 1, 'Single node without entries'
         elif self.type == 'choice':
             assert self.max_ranks == 1, 'Choice node with ranks'
         else:
             assert self.type == 'tiered', 'Unknown node type'
 
         if self.type == 'tiered':
-            assert sum(c.max_ranks for c in self.entries) == self.max_ranks, 'Tiered node with inconsistent ranks'
+            assert sum(e.max_ranks for e in self.entries) == self.max_ranks, 'Tiered node with inconsistent ranks'
         else:
-            assert all(c.max_ranks == self.max_ranks for c in self.entries), 'Non-tiered node with inconsistent ranks'
+            assert all(e.max_ranks == self.max_ranks for e in self.entries), 'Non-tiered node with inconsistent ranks'
 
     def __repr__(self) -> str:
         return f'{self.name} ({self.id})'
@@ -221,7 +221,7 @@ class TalentNode:
                 for entry in self.entries:
                     if not (entry.min_assign <= pts <= entry.max_assign):
                         continue
-                    if all(c.min_assign <= 0 <= c.max_assign for c in self.entries if c != entry):
+                    if all(e.min_assign <= 0 <= e.max_assign for e in self.entries if e != entry):
                         any_valid = True
                         if pts > 0:
                             assign.append((entry.id, pts))
@@ -373,7 +373,7 @@ class TalentTree:
         toid = lambda v: v if isinstance(v, int) else v.id
         # Restrict requirements only to the tier we're interested in and set up intervals
         # for single-digit requirements.
-        return {toid(c):split(v) for c, v in entries.items() if toid(c) in entry_ids}, \
+        return {toid(e):split(v) for e, v in entries.items() if toid(e) in entry_ids}, \
                {toid(n):split(v) for n, v in nodes.items() if toid(n) in node_ids}
 
     def _search_graph(self, extra_entry_nodes: frozenset[TalentNode], tier: int,
@@ -428,7 +428,7 @@ class TalentTree:
                        visited | node.next_same if full else visited, count + extra_count,
                        unlock | node.next_diff if full else unlock, new_subtree,
                        nonempty_nodes if node.allows_empty else nonempty_nodes + 1,
-                       normal_assign + assign if not is_choice and len(assign) else normal_assign,
+                       normal_assign + assign if not is_choice and assign else normal_assign,
                        choice_assign + [assign] if is_choice else choice_assign)
                 queue.append(node)
 
@@ -473,7 +473,7 @@ class TalentTree:
         gate_builds: list[GraphSearchDict] = []
         for tier in self.gates:
             gate_builds.append(self._get_lazy_dict(tier, entry_requirements, node_requirements))
-        empty_build = {c_id:0 for c_id in self.all_entry_ids()}
+        empty_build = {e_id:0 for e_id in self.all_entry_ids()}
 
         def go(ix: int=0, pts: int=0, unlock: frozenset[TalentNode]=frozenset(), prev: list[RawTalentBuild]=[]):
             for (next_pts, next_unlock), build_parts in gate_builds[ix][unlock].items():
@@ -540,21 +540,21 @@ class TalentTree:
         This is similar to ProfileGenerator.fill_blueprint, but
         more flexible (though not as optimized).
         '''
-        ordered = [(c_id, build[c_id]) for c_id in self.ordered_entry_ids()]
+        ordered = [(e_id, build[e_id]) for e_id in self.ordered_entry_ids()]
         assert all(0 <= pts <= 9 for _, pts in ordered), 'Too many digits for the profile name'
         opt_name = self.tree_type + '_talents='
         return ''.join(f'{pts}' for _, pts in ordered), \
-               opt_name + '/'.join(f'{c_id}:{pts}' for c_id, pts in ordered)
+               opt_name + '/'.join(f'{e_id}:{pts}' for e_id, pts in ordered)
 
     def decode_profile(self, name: str) -> dict[TalentEntry, int]:
         '''
         Decodes a profile name back into a (human readable) mapping
         from entries to spent points.
         '''
-        to_entry = {c.id:c for c in self.all_entries()}
+        to_entry = {e.id:e for e in self.all_entries()}
         ordered = self.ordered_entry_ids()
         assert len(name) == len(ordered), 'Invalid profile name length'
-        return {to_entry[c_id]:v for c_id, v in zip(ordered, map(int, name))}
+        return {to_entry[e_id]:v for e_id, v in zip(ordered, map(int, name))}
 
     def tokenized_names(self, apex: bool=True) -> dict[str, TalentEntry]:
         '''
@@ -567,8 +567,8 @@ class TalentTree:
         add 'apex_1' through 'apex_3' to the resulting dictionary.
         '''
         result: dict[str, TalentEntry] = {}
-        entries = sorted(self.all_entries(), key=lambda c: (tokenize(c.name), c.id))
-        for name, iter in itertools.groupby(entries, key=lambda c: tokenize(c.name)):
+        entries = sorted(self.all_entries(), key=lambda e: (tokenize(e.name), e.id))
+        for name, iter in itertools.groupby(entries, key=lambda e: tokenize(e.name)):
             assert name, 'Empty entry name'
             group = list(iter)
             if len(group) == 1:
@@ -582,7 +582,7 @@ class TalentTree:
             candidates = self.entry & self.tiers[20]
             assert len(candidates) == 1, 'More than one apex candidate'
             node = list(candidates)[0]
-            assert len(node.entries) == 3, f'Apex with nonstandard entries'
+            assert len(node.entries) == 3, 'Apex with nonstandard entries'
             for i in range(3):
                 result[f'apex_{i + 1}'] = node.entries[i]
 
@@ -742,8 +742,8 @@ class ProfileGenerator:
         blueprint += b'=' if self.profileset else b'\n'
         blueprint += bytes(self.tree.tree_type, encoding='utf-8') + b'_talents='
         talent_ixs = []
-        for c_id in self.entry_ids:
-            blueprint += bytes(str(c_id), encoding='utf-8') + b':'
+        for e_id in self.entry_ids:
+            blueprint += bytes(str(e_id), encoding='utf-8') + b':'
             talent_ixs.append(len(blueprint))
             blueprint += b'0/'
         blueprint[-1] = ord('\n')
@@ -757,8 +757,8 @@ class ProfileGenerator:
 
         Returns a copy of the filled blueprint.
         '''
-        for offset, c_id in enumerate(self.entry_ids):
-            value = build[c_id]
+        for offset, e_id in enumerate(self.entry_ids):
+            value = build[e_id]
             assert 0 <= value < 10, 'Too many digits for the blueprint'
             byte = ord('0') + value
             self.blueprint[self.name_ix + offset] = byte
