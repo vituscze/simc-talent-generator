@@ -43,16 +43,19 @@ class Choice:
     Typically, a talent node contains two choices if it's a choice node and a single
     choice otherwise, although there have been some unusual exceptions.
     '''
+    # TODO: Should probably be called TalentEntry or something like that, Choice
+    # no longer makes sense in the presence of tiered nodes
     def __init__(self, raw_json, node: 'TalentNode'):
         self.__dict__.update(raw_json)
         self.id: int = raw_json['id']
         self.name: str = raw_json['name']
+        self.max_ranks: int = raw_json['maxRanks']
+        self.index: int = raw_json['index']
         self.node = node
-        assert raw_json['maxRanks'] == node.max_ranks, 'Node and choice maxRanks differ'
 
         # Bookkeeping for requirements
         self.min_assign: int = 0
-        self.max_assign: int = node.max_ranks
+        self.max_assign: int = self.max_ranks
 
     def __repr__(self) -> str:
         return f'{self.name} ({self.id})'
@@ -85,11 +88,12 @@ class TalentNode:
         self.is_free = 'freeNode' in self.json
         self.is_entry = 'entryNode' in self.json
         self.req_points: int = self.json['reqPoints'] if 'reqPoints' in self.json else 0
-        self.is_choice: bool = self.json['type'] == 'choice'
+        self.type: str = self.json['type']
         self.max_ranks: int = self.json['maxRanks'] if 'maxRanks' in self.json else 0
         self.sub_tree: int | None = self.json['subTreeId'] if 'subTreeId' in self.json else None
         # Some single nodes have additional empty entries, remove them
         self.choices = [Choice(entry, self) for entry in self.json['entries'] if 'id' in entry]
+        self.choices.sort(key=lambda c: c.index)
 
         # Bookkeeping for requirements
         self.min_assign: int = 0
@@ -99,14 +103,21 @@ class TalentNode:
         if not self.is_valid():
             return
 
-        # If a single node has multiple choices, it seems that the game
-        # only lets you pick the first one.
-        # TODO: Check if this is still the case
-        if not self.is_choice:
+        if self.type == 'single':
+            # If a single node has multiple choices, it seems that the game
+            # only lets you pick the first one.
+            # TODO: Check if this is still the case
             self.choices = self.choices[:1]
-            assert len(self.choices) == 1, f'{self.name} Single node without 1 choice'
-        else:
+            assert len(self.choices) == 1, f'{self.name} Single node without choices'
+        elif self.type == 'choice':
             assert self.max_ranks == 1, 'Choice node with ranks'
+        else:
+            assert self.type == 'tiered', 'Unknown node type'
+
+        if self.type == 'tiered':
+            assert sum(c.max_ranks for c in self.choices) == self.max_ranks, 'Tiered node with inconsistent ranks'
+        else:
+            assert all(c.max_ranks == self.max_ranks for c in self.choices), 'Non-tiered node with inconsistent ranks'
 
     def __repr__(self) -> str:
         return f'{self.name} ({self.id})'
@@ -154,7 +165,7 @@ class TalentNode:
                        reqs: dict[int, tuple[int, int]]) -> None:
             nonlocal allows_empty
             obj.min_assign = 0
-            obj.max_assign = self.max_ranks
+            obj.max_assign = obj.max_ranks
             if obj.id in reqs:
                 lo, hi = reqs[obj.id]
                 obj.min_assign = max(obj.min_assign, lo)
