@@ -41,7 +41,7 @@ If you want to access the actual builds, rather than just the count:
 {134405: 1, 134406: 1, 134407: 1, 134408: 2, 134409: 0, ...}
 ```
 
-A build is simply a mapping from choice IDs (an ID of a talent entry) to the number of assigned points.
+A build is simply a mapping from entry IDs to the number of assigned points.
 
 By default, these three methods try to generate talent builds with 34 points (13 for hero talents). If you want to change this (a lower level character, perhaps), there's an optional `points` argument:
 
@@ -52,9 +52,9 @@ By default, these three methods try to generate talent builds with 34 points (13
 
 ### Specifying Requirements
 
-Typically, you want to generate only builds that satisfy certain requirements. This script allows you to specify how many points a given choice (or a talent node) should have. These three methods can be given a dictionary which maps choice IDs to either numbers or intervals (a tuple of numbers) that specify how many points should be assigned.
+Typically, you want to generate only builds that satisfy certain requirements. This script allows you to specify how many points a given talent entry (or a talent node) should have. These three methods can be given a dictionary which maps entry IDs to either numbers or intervals (a tuple of numbers) that specify how many points should be assigned.
 
-As an example, suppose we want to count only the builds that put between one and two points into Rimecaster (choice ID 134408) and zero points into Cold Snap (choice ID 134181):
+As an example, suppose we want to count only the builds that put between one and two points into Rimecaster (entry ID 134408) and zero points into Cold Snap (entry ID 134181):
 
 ```py
 >>> frost = talents.mage.frost.spec
@@ -62,7 +62,7 @@ As an example, suppose we want to count only the builds that put between one and
 3869782
 ```
 
-You can get the choice IDs by calling `all_choices()` on the tree. However, unless you're already working with these IDs, looking them up is annoying. For that reason, you can use `populate_globals()` which will create global variables corresponding to the choice nodes.
+You can get the entry IDs by calling `all_entries()` on the tree. However, unless you're already working with these IDs, looking them up is annoying. For that reason, you can use `populate_globals()` which will create global variables corresponding to the talent entries.
 
 ```py
 >>> frost.populate_globals()
@@ -81,7 +81,7 @@ The previous code then becomes:
 3869782
 ```
 
-Sometimes, you might want to specify that a choice node should be picked but you don't care about the particular choice. In that case, you provide a second dictionary with *node IDs*. The easiest way to get a node ID is to find one of the choices and refer to the `node` attribute:
+Sometimes, you might want to specify that a choice node should be picked but you don't care about the particular choice. In that case, you provide a second dictionary with *node IDs*. The easiest way to get a node ID is to find one of the entries and refer to the `node` attribute:
 
 ```py
 >>> frigid_focus.node

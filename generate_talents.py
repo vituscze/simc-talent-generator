@@ -36,15 +36,13 @@ class LazyDict[K, V]:
             self.data[key] = self.lookup(key)
         return self.data[key]
 
-class Choice:
+class TalentEntry:
     '''
-    Choice represents a single choice in a talent node.
+    TalentEntry represents a single entry in a talent node.
 
-    Typically, a talent node contains two choices if it's a choice node and a single
-    choice otherwise, although there have been some unusual exceptions.
+    Typically, a talent node contains two entries if it's a choice node and a single
+    entry otherwise, although there have been some unusual exceptions.
     '''
-    # TODO: Should probably be called TalentEntry or something like that, Choice
-    # no longer makes sense in the presence of tiered nodes
     def __init__(self, raw_json, node: 'TalentNode'):
         self.__dict__.update(raw_json)
         self.id: int = raw_json['id']
@@ -92,8 +90,8 @@ class TalentNode:
         self.max_ranks: int = self.json['maxRanks'] if 'maxRanks' in self.json else 0
         self.sub_tree: int | None = self.json['subTreeId'] if 'subTreeId' in self.json else None
         # Some single nodes have additional empty entries, remove them
-        self.choices = [Choice(entry, self) for entry in self.json['entries'] if 'id' in entry]
-        self.choices.sort(key=lambda c: c.index)
+        self.entries = [TalentEntry(entry, self) for entry in self.json['entries'] if 'id' in entry]
+        self.entries.sort(key=lambda c: c.index)
 
         # Bookkeeping for requirements
         self.min_assign: int = 0
@@ -104,20 +102,20 @@ class TalentNode:
             return
 
         if self.type == 'single':
-            # If a single node has multiple choices, it seems that the game
+            # If a single node has multiple entries, it seems that the game
             # only lets you pick the first one.
             # TODO: Check if this is still the case
-            self.choices = self.choices[:1]
-            assert len(self.choices) == 1, f'{self.name} Single node without choices'
+            self.entries = self.entries[:1]
+            assert len(self.entries) == 1, f'{self.name} Single node without entries'
         elif self.type == 'choice':
             assert self.max_ranks == 1, 'Choice node with ranks'
         else:
             assert self.type == 'tiered', 'Unknown node type'
 
         if self.type == 'tiered':
-            assert sum(c.max_ranks for c in self.choices) == self.max_ranks, 'Tiered node with inconsistent ranks'
+            assert sum(c.max_ranks for c in self.entries) == self.max_ranks, 'Tiered node with inconsistent ranks'
         else:
-            assert all(c.max_ranks == self.max_ranks for c in self.choices), 'Non-tiered node with inconsistent ranks'
+            assert all(c.max_ranks == self.max_ranks for c in self.entries), 'Non-tiered node with inconsistent ranks'
 
     def __repr__(self) -> str:
         return f'{self.name} ({self.id})'
@@ -151,17 +149,17 @@ class TalentNode:
         self.next_same = {node for node in self.next if node.req_points == self.req_points}
         self.next_diff = {node for node in self.next if node.req_points != self.req_points}
 
-    def apply_requirements(self, choice_reqs: dict[int, tuple[int, int]],
+    def apply_requirements(self, entry_reqs: dict[int, tuple[int, int]],
                            node_reqs: dict[int, tuple[int, int]]) -> None:
         '''
         Apply requirements (as produced by TalentTree._normalize_reqs) to the node
-        and its choices. Sets the relevant bookkeeping information and sets
+        and its entries. Sets the relevant bookkeeping information and sets
         TalentNode.allows_empty to whether the requirements are compatible with
         an empty assignment.
         '''
         allows_empty = True
 
-        def set_assign(obj: 'Choice | TalentNode',
+        def set_assign(obj: 'TalentEntry | TalentNode',
                        reqs: dict[int, tuple[int, int]]) -> None:
             nonlocal allows_empty
             obj.min_assign = 0
@@ -174,32 +172,32 @@ class TalentNode:
                     allows_empty = False
 
         set_assign(self, node_reqs)
-        for choice in self.choices:
-            set_assign(choice, choice_reqs)
+        for entry in self.entries:
+            set_assign(entry, entry_reqs)
         # Node can be skipped if an assignment that allocates no points to
-        # it or its choices is valid.
+        # it or its entries is valid.
         self.allows_empty = allows_empty
 
     def generate_assignments(self):
         '''
         Yields all assignments that satisfy the requirements as given
-        by TalentNode.apply_requirements. An assignment is given as a triple
-        (count: int, full: bool, change: list[tuple[int, int]], choice: bool):
+        by TalentNode.apply_requirements. An assignment is given as a tuple
+        (count: int, full: bool, choice: bool, change: list[tuple[int, int]]):
 
         * `count'   the total number of assigned points
         * `full'    whether the node was filled completely
-        * `change'  list of valid ways to assign the points
         * `choice'  whether the list represents a choice of point assignment
+        * `change'  list of valid ways to assign the points
 
         If the change list contains no elements, no points need to be changed.
         If choice is True, the change list represents the choices that can be
-        made when assigning the points (as opposed to a single choice that
-        assigns to multiple choice ids). As an example, the list
+        made when assigning the points (as opposed to an assignment that changes
+        multiple entries at once). As an example, the list
 
             [(30,1),(40,1)]
 
-        specifies a single point could be assigned either to choice id 30 or
-        choice id 40.
+        specifies a single point could be assigned either to entry id 30 or
+        entry id 40.
 
         This method should only be used after TalentNode.apply_requirements.
         '''
@@ -208,27 +206,27 @@ class TalentNode:
             if self.type == 'tiered':
                 rem_pts = pts
                 valid = True
-                for choice in self.choices:
-                    choice_pts = min(choice.max_ranks, rem_pts)
-                    rem_pts -= choice_pts
-                    if not (choice.min_assign <= choice_pts <= choice.max_assign):
+                for entry in self.entries:
+                    entry_pts = min(entry.max_ranks, rem_pts)
+                    rem_pts -= entry_pts
+                    if not (entry.min_assign <= entry_pts <= entry.max_assign):
                         valid = False
                         break
-                    if choice_pts > 0:
-                        assign.append((choice.id, choice_pts))
+                    if entry_pts > 0:
+                        assign.append((entry.id, entry_pts))
                 if valid:
-                    yield pts, pts == self.max_ranks, assign, False
+                    yield pts, pts == self.max_ranks, False, assign
             else:
                 any_valid = False
-                for choice in self.choices:
-                    if not (choice.min_assign <= pts <= choice.max_assign):
+                for entry in self.entries:
+                    if not (entry.min_assign <= pts <= entry.max_assign):
                         continue
-                    if all(c.min_assign <= 0 <= c.max_assign for c in self.choices if c != choice):
+                    if all(c.min_assign <= 0 <= c.max_assign for c in self.entries if c != entry):
                         any_valid = True
                         if pts > 0:
-                            assign.append((choice.id, pts))
+                            assign.append((entry.id, pts))
                 if any_valid:
-                    yield pts, pts == self.max_ranks, assign, len(assign) > 1 and self.type == 'choice'
+                    yield pts, pts == self.max_ranks, len(assign) > 1 and self.type == 'choice', assign
 
 Assignment = list[tuple[int, int]]
 RawTalentBuild = tuple[Assignment, list[Assignment]]
@@ -242,31 +240,31 @@ class TalentTree:
 
     Several method are parametrized by requirements (generate_builds,
     generate_profiles and count_builds). A requirement specifies how
-    many points should be assigned to each choice and talent node. This can
-    either be given as a single int (choice/node must be assigned exactly
-    that many points) or as a tuple[int, int] (choice/node may be assigned
+    many points should be assigned to each talent entry and node. This can
+    either be given as a single int (entry/node must be assigned exactly
+    that many points) or as a tuple[int, int] (entry/node may be assigned
     any number of points from the specified interval).
 
-    The choice/talent node can be given either by using its id or
-    Choice/TalentNode directly. Although choice and node ids currently don't
+    The talent entry/node can be given either by using its id or
+    TalentEntry/TalentNode directly. Although entry and node ids currently don't
     collide, there's no guarantee that it won't happen in the future and for
     that reason, the requirements are split in two.
 
-    a) choice_requirements is a dictionary representing the choice requirements
+    a) entry_requirements is a dictionary representing the talent entry requirements
 
     b) node_requirements is a dictionary representing the talent node requirements
 
-    Suppose that a talent with id 1 contains two choices with ids 2 and 3. Forcing
-    both choices to have zero points can be done in the following ways:
+    Suppose that a talent with id 1 contains two entires with ids 2 and 3. Forcing
+    both entries to have zero points can be done in the following ways:
 
     >>> tree = TalentTree(...)
-    >>> tree.count_builds(choice_requirements={2:0, 3:0})
+    >>> tree.count_builds(entry_requirements={2:0, 3:0})
     ...
     >>> tree.count_builds(node_requirements={1:0})
     ...
 
     If we want the talent node to be assigned a single point but we don't care about
-    which choice is selected:
+    which talent entry is selected:
 
     >>> tree.count_builds(node_requirements={1:1})
     ...
@@ -275,8 +273,8 @@ class TalentTree:
         # Make sure we can treat ids as actual ids.
         is_unique = lambda vals: len(vals) == len(set(vals))
         assert is_unique([node['id'] for node in raw_json if 'id' in node]), 'Node id not unique'
-        assert is_unique([choice['id'] for node in raw_json if 'id' in node
-                          for choice in node['entries'] if 'id' in choice]), 'Choice id not unique'
+        assert is_unique([entry['id'] for node in raw_json if 'id' in node
+                          for entry in node['entries'] if 'id' in entry]), 'Entry id not unique'
 
         self.tree_type = tree_type
         self.nodes = {talent.id:talent for node in raw_json if (talent := TalentNode(node)).is_valid()}
@@ -332,77 +330,77 @@ class TalentTree:
         '''
         return {node.id for node in self.all_nodes(tier)}
 
-    def all_choices(self, tier: int | None=None) -> set[Choice]:
+    def all_entries(self, tier: int | None=None) -> set[TalentEntry]:
         '''
-        Retrieves the set of all choices of pickable talent nodes in the
+        Retrieves the set of all talent entries of pickable talent nodes in the
         given tier, or the entire tree if the tier isn't specified.
         '''
-        return {choice for node in self.all_nodes(tier) for choice in node.choices}
+        return {entry for node in self.all_nodes(tier) for entry in node.entries}
 
-    def all_choice_ids(self, tier: int | None=None) -> set[int]:
+    def all_entry_ids(self, tier: int | None=None) -> set[int]:
         '''
-        Retrieves the set of all choice ids of pickable talent nodes in the
+        Retrieves the set of all talent entry ids of pickable talent nodes in the
         given tier, or the entire tree if the tier isn't specified.
         '''
-        return {choice.id for choice in self.all_choices(tier)}
+        return {entry.id for entry in self.all_entries(tier)}
 
-    def ordered_choice_ids(self) -> list[int]:
+    def ordered_entry_ids(self) -> list[int]:
         '''
-        Returns a list of all choice ids in a specific, unchanging order.
+        Returns a list of all talent entry ids in a specific, unchanging order.
         Used for profile generation.
         '''
-        return sorted(self.all_choice_ids())
+        return sorted(self.all_entry_ids())
 
-    def _normalize_reqs(self, tier: int | None, choices: dict, nodes: dict) -> \
+    def _normalize_reqs(self, tier: int | None, entries: dict, nodes: dict) -> \
             tuple[dict[int, tuple[int, int]], dict[int, tuple[int, int]]]:
         '''
-        Converts choice and talent node requirements (as described by TalentTree)
+        Converts talent entry and node requirements (as described by TalentTree)
         into a representation used by _search_graph. In particular, _search_graph
-        expects choice requirements to have the type dict[int, tuple[int, int]]
+        expects talent entry requirements to have the type dict[int, tuple[int, int]]
         and talent node requirements dict[int, tuple[int, int]]. Also filters out
         requirements which are not relevant to the given talent tree tier.
 
-        A single int requirement v is turned into a tuple (v, v). Choices and
-        talent nodes are turned into their ids.
+        A single int requirement v is turned into a tuple (v, v). Talent entries and
+        nodes are turned into their ids.
 
-        Returns a tuple containing the new choice requirements and the new node
+        Returns a tuple containing the new entry requirements and the new node
         requirements, in this order.
         '''
-        choice_ids = self.all_choice_ids(tier)
+        entry_ids = self.all_entry_ids(tier)
         node_ids = self.all_node_ids(tier)
 
         split = lambda v: (v, v) if isinstance(v, int) else v
         toid = lambda v: v if isinstance(v, int) else v.id
         # Restrict requirements only to the tier we're interested in and set up intervals
         # for single-digit requirements.
-        return {toid(c):split(v) for c, v in choices.items() if toid(c) in choice_ids}, \
+        return {toid(c):split(v) for c, v in entries.items() if toid(c) in entry_ids}, \
                {toid(n):split(v) for n, v in nodes.items() if toid(n) in node_ids}
 
-    def _search_graph(self, extra_entry: frozenset[TalentNode], tier: int,
-                      raw_choice_reqs: dict, raw_node_reqs: dict) -> GraphSearchResult:
+    def _search_graph(self, extra_entry_nodes: frozenset[TalentNode], tier: int,
+                      raw_entry_reqs: dict, raw_node_reqs: dict) -> GraphSearchResult:
         '''
         Searches the graph of a given talent tree tier, starting with the static entry
-        nodes and any additional nodes as specified by extra_entry.
+        nodes and any additional nodes as specified by extra_entry_nodes.
 
         All valid (partial) builds are returned in a dictionary. The key is a tuple
         containing the total number of points assigned as well as set of talent tree nodes
         that are reachable in the next talent tree tier. The value is a list of corresponding
-        builds, given by a tuple containing a list of single choice assignments and a list
-        of multiple choice assignments. As an example, the following
+        builds, given by a tuple containing a list of single entry assignments and a list
+        of multiple entry assignments. As an example, the following
 
            ([(10,1),(20,2)], [[(30,1),(40,1)]])
 
         represents two different talent builds: {10:1,20:2,30:1,40:0} and {10:1,20:2,30:0,40:1}
-        (note the choice between choice ids 30 and 40).
+        (note the choice between entry ids 30 and 40).
         '''
-        initial = extra_entry | self.entry
+        initial = extra_entry_nodes | self.entry
         initial &= self.tiers[tier]
 
-        choice_reqs, node_reqs = self._normalize_reqs(tier, raw_choice_reqs, raw_node_reqs)
+        entry_reqs, node_reqs = self._normalize_reqs(tier, raw_entry_reqs, raw_node_reqs)
         total_nonempty_nodes = 0
-        node_assignments: dict[int, list[tuple[int, bool, Assignment, bool]]] = {}
+        node_assignments: dict[int, list[tuple[int, bool, bool, Assignment]]] = {}
         for node in self.all_nodes(tier):
-            node.apply_requirements(choice_reqs, node_reqs)
+            node.apply_requirements(entry_reqs, node_reqs)
             node_assignments[node.id] = list(node.generate_assignments())
             if not node.allows_empty:
                 total_nonempty_nodes += 1
@@ -420,7 +418,7 @@ class TalentTree:
                     result[(count, unlock)].append((normal_assign, choice_assign))
             else:
                 node = queue.pop()
-                for extra_count, full, assign, is_choice in node_assignments[node.id]:
+                for extra_count, full, is_choice, assign in node_assignments[node.id]:
                     new_subtree = subtree if extra_count == 0 else node.sub_tree
                     if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
                         # Already locked into another subtree, skip
@@ -453,7 +451,7 @@ class TalentTree:
         '''
         Turns a series of raw build parts (given by a tuple with normal
         and choice assignments) into an actual build, that is a mapping
-        from choice ids to the number of assigned points. Uses the start
+        from talent entry ids to the number of assigned points. Uses the start
         dictionary as a starting point.
         '''
         raw_normal, raw_choice = zip(*build)
@@ -461,10 +459,10 @@ class TalentTree:
         for choice in itertools.product(*itertools.chain(*raw_choice)):
             yield normal | dict(choice)
 
-    def generate_builds(self, choice_requirements: dict={}, node_requirements: dict={},
+    def generate_builds(self, entry_requirements: dict={}, node_requirements: dict={},
                         points: int | None=None):
         '''
-        Yields all valid talent builds given the choice/talent node requirements
+        Yields all valid talent builds given the talent entry/node requirements
         and the number of points to spend. If not provided, uses the default number
         of points as specified by default_points.
 
@@ -474,8 +472,8 @@ class TalentTree:
             points = self.default_points()
         gate_builds: list[GraphSearchDict] = []
         for tier in self.gates:
-            gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
-        empty_build = {c_id:0 for c_id in self.all_choice_ids()}
+            gate_builds.append(self._get_lazy_dict(tier, entry_requirements, node_requirements))
+        empty_build = {c_id:0 for c_id in self.all_entry_ids()}
 
         def go(ix: int=0, pts: int=0, unlock: frozenset[TalentNode]=frozenset(), prev: list[RawTalentBuild]=[]):
             for (next_pts, next_unlock), build_parts in gate_builds[ix][unlock].items():
@@ -491,19 +489,19 @@ class TalentTree:
 
         yield from go()
 
-    def generate_profiles(self, choice_requirements: dict={}, node_requirements: dict={},
+    def generate_profiles(self, entry_requirements: dict={}, node_requirements: dict={},
                           points: int | None=None, profileset: bool=True) -> 'ProfileGenerator':
         '''
         Yields all valid talent builds through the profile generator object.
         See generate_builds and ProfileGenerator for more details.
         '''
-        return ProfileGenerator(self.generate_builds(choice_requirements, node_requirements, points),
+        return ProfileGenerator(self.generate_builds(entry_requirements, node_requirements, points),
                                 self, profileset)
 
-    def count_builds(self, choice_requirements: dict={}, node_requirements: dict={},
+    def count_builds(self, entry_requirements: dict={}, node_requirements: dict={},
                      points : int | None=None) -> int:
         '''
-        Returns the number of all valid talent builds given the choice/talent node
+        Returns the number of all valid talent builds given the talent entry/node
         requirements and the number of points to spend. If not provided, uses the
         default number of points as specified by default_points.
 
@@ -516,7 +514,7 @@ class TalentTree:
             points = self.default_points()
         gate_builds: list[GraphSearchDict] = []
         for tier in self.gates:
-            gate_builds.append(self._get_lazy_dict(tier, choice_requirements, node_requirements))
+            gate_builds.append(self._get_lazy_dict(tier, entry_requirements, node_requirements))
         part_counts: dict[tuple[int, frozenset[TalentNode], int, frozenset[TalentNode]], int] = {}
 
         def go(ix: int=0, pts: int=0, unlock: frozenset[TalentNode]=frozenset()):
@@ -542,51 +540,51 @@ class TalentTree:
         This is similar to ProfileGenerator.fill_blueprint, but
         more flexible (though not as optimized).
         '''
-        ordered = [(c_id, build[c_id]) for c_id in self.ordered_choice_ids()]
+        ordered = [(c_id, build[c_id]) for c_id in self.ordered_entry_ids()]
         assert all(0 <= pts <= 9 for _, pts in ordered), 'Too many digits for the profile name'
         opt_name = self.tree_type + '_talents='
         return ''.join(f'{pts}' for _, pts in ordered), \
                opt_name + '/'.join(f'{c_id}:{pts}' for c_id, pts in ordered)
 
-    def decode_profile(self, name: str) -> dict[Choice, int]:
+    def decode_profile(self, name: str) -> dict[TalentEntry, int]:
         '''
         Decodes a profile name back into a (human readable) mapping
-        from choices to spent points.
+        from entries to spent points.
         '''
-        to_choice = {c.id:c for c in self.all_choices()}
-        ordered = self.ordered_choice_ids()
+        to_entry = {c.id:c for c in self.all_entries()}
+        ordered = self.ordered_entry_ids()
         assert len(name) == len(ordered), 'Invalid profile name length'
-        return {to_choice[c_id]:v for c_id, v in zip(ordered, map(int, name))}
+        return {to_entry[c_id]:v for c_id, v in zip(ordered, map(int, name))}
 
-    def tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
+    def tokenized_names(self, apex: bool=True) -> dict[str, TalentEntry]:
         '''
-        Returns a mapping from tokenized choice names to the actual choices.
+        Returns a mapping from tokenized entry names to the actual entries.
 
         Name collisions are resolved by appending an underscore and an index to
-        the tokenized choice name.
+        the tokenized entry name.
 
         If apex is true, also attempts to find the apex talent and potentially
         add 'apex_1' through 'apex_3' to the resulting dictionary.
         '''
-        result: dict[str, Choice] = {}
-        choices = sorted(self.all_choices(), key=lambda c: (tokenize(c.name), c.id))
-        for name, iter in itertools.groupby(choices, key=lambda c: tokenize(c.name)):
-            assert name, 'Empty choice name'
+        result: dict[str, TalentEntry] = {}
+        entries = sorted(self.all_entries(), key=lambda c: (tokenize(c.name), c.id))
+        for name, iter in itertools.groupby(entries, key=lambda c: tokenize(c.name)):
+            assert name, 'Empty entry name'
             group = list(iter)
             if len(group) == 1:
                 result[name] = group[0]
             else:
-                for i, choice in enumerate(group):
-                    result[f'{name}_{i + 1}'] = choice
+                for i, entry in enumerate(group):
+                    result[f'{name}_{i + 1}'] = entry
         # Try to find the apex talents
         if apex and self.tree_type == 'spec':
             assert 20 in self.tiers, 'Spec with nonstandard last gate'
             candidates = self.entry & self.tiers[20]
             assert len(candidates) == 1, 'More than one apex candidate'
             node = list(candidates)[0]
-            assert len(node.choices) == 3, 'Apex with nonstandard entries'
+            assert len(node.entries) == 3, f'Apex with nonstandard entries'
             for i in range(3):
-                result[f'apex_{i + 1}'] = node.choices[i]
+                result[f'apex_{i + 1}'] = node.entries[i]
 
         return result
 
@@ -599,7 +597,7 @@ class TalentTree:
         is low (talent names are fairly specific), it is not zero.
 
         This method is here mainly for user convenience in the interactive
-        environment, allowing to specify the choice requirements fairly
+        environment, allowing to specify the entry requirements fairly
         easily. While a similar effect could be accomplished with keyword
         args, the main benefit of this approach is a working autocomplete.
         '''
@@ -618,24 +616,24 @@ class Specialization:
         self.spec   = TalentTree('spec',  tree['specNodes'])
         self.hero   = TalentTree('hero',  tree['heroNodes'])
 
-    def generate_all_builds(self, choice_requirements: dict={},
+    def generate_all_builds(self, entry_requirements: dict={},
                             node_requirements: dict={}):
         '''
         See TalentTree.generate_builds
         '''
-        for class_build in self.class_.generate_builds(choice_requirements, node_requirements):
-            for spec_build in self.spec.generate_builds(choice_requirements, node_requirements):
-                for hero_build in self.hero.generate_builds(choice_requirements, node_requirements):
+        for class_build in self.class_.generate_builds(entry_requirements, node_requirements):
+            for spec_build in self.spec.generate_builds(entry_requirements, node_requirements):
+                for hero_build in self.hero.generate_builds(entry_requirements, node_requirements):
                     yield {'class': class_build, 'spec': spec_build, 'hero': hero_build}
 
-    def count_all_builds(self, choice_requirements: dict={},
+    def count_all_builds(self, entry_requirements: dict={},
                          node_requirements: dict={}) -> int:
         '''
         See TalentTree.count_builds
         '''
-        class_count = self.class_.count_builds(choice_requirements, node_requirements)
-        spec_count = self.spec.count_builds(choice_requirements, node_requirements)
-        hero_count = self.hero.count_builds(choice_requirements, node_requirements)
+        class_count = self.class_.count_builds(entry_requirements, node_requirements)
+        spec_count = self.spec.count_builds(entry_requirements, node_requirements)
+        hero_count = self.hero.count_builds(entry_requirements, node_requirements)
         return class_count * spec_count * hero_count
 
     def encode_profile(self, build: dict[str, dict[int, int]]) -> \
@@ -647,7 +645,7 @@ class Specialization:
                          self.spec.encode_profile(build['spec']),
                          self.hero.encode_profile(build['hero'])))
 
-    def all_tokenized_names(self, apex: bool=True) -> dict[str, Choice]:
+    def all_tokenized_names(self, apex: bool=True) -> dict[str, TalentEntry]:
         '''
         See TalentTree.tokenized_names
         '''
@@ -712,7 +710,7 @@ class ProfileGenerator:
         self.generator = generator
         self.tree = tree
         self.profileset = profileset
-        self.choice_ids = self.tree.ordered_choice_ids()
+        self.entry_ids = self.tree.ordered_entry_ids()
         self.build_blueprint()
 
     def build_blueprint(self) -> None:
@@ -720,13 +718,13 @@ class ProfileGenerator:
         Creates a profile bytearray with the correct format and node ids,
         but with no actual assigned points.
 
-        For each choice id, it stores the index of the corresponding byte in
+        For each entry id, it stores the index of the corresponding byte in
         the bytearray in the talent_ixs array.
 
-        Length of the profile name is given by the number of choice ids and
+        Length of the profile name is given by the number of entry ids and
         it starts at the index specified by name_ix.
 
-        As an example, consider a profileset with 3 choice ids:
+        As an example, consider a profileset with 3 entry ids:
 
                    0 2                0   1   2
                    v v                v   v   v
@@ -734,17 +732,17 @@ class ProfileGenerator:
                     ^
                     1
 
-        For the i-th choice id, the name byte is given by name_ix + i. The count
+        For the i-th entry id, the name byte is given by name_ix + i. The count
         byte is given by talent_ixs[i].
         '''
         blueprint = bytearray()
         blueprint += b'profileset.' if self.profileset else b'copy='
         self.name_ix = len(blueprint)
-        blueprint += b'0' * len(self.choice_ids)
+        blueprint += b'0' * len(self.entry_ids)
         blueprint += b'=' if self.profileset else b'\n'
         blueprint += bytes(self.tree.tree_type, encoding='utf-8') + b'_talents='
         talent_ixs = []
-        for c_id in self.choice_ids:
+        for c_id in self.entry_ids:
             blueprint += bytes(str(c_id), encoding='utf-8') + b':'
             talent_ixs.append(len(blueprint))
             blueprint += b'0/'
@@ -759,7 +757,7 @@ class ProfileGenerator:
 
         Returns a copy of the filled blueprint.
         '''
-        for offset, c_id in enumerate(self.choice_ids):
+        for offset, c_id in enumerate(self.entry_ids):
             value = build[c_id]
             assert 0 <= value < 10, 'Too many digits for the blueprint'
             byte = ord('0') + value

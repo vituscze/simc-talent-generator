@@ -11,7 +11,7 @@ if __name__ == '__main__':
     assert hero.count_builds() == 16, 'hero count'
     hero_bs = list(hero.generate_builds())
     hero_b = hero_bs[0]
-    assert len(hero_b) == len(hero.all_choices()), 'hero choice count'
+    assert len(hero_b) == len(hero.all_entries()), 'hero choice count'
     assert len(hero_bs) == 16, 'hero count gen'
     assert all(sum(b.values()) == 13 for b in hero_bs), 'hero points'
     hero_bs_sorted = [tuple(sorted(b.items())) for b in hero_bs]
@@ -32,11 +32,11 @@ if __name__ == '__main__':
     class_bs = list(class_.generate_builds({t.inspired_intellect:0,t.tome_of_antonidas:0,t.tome_of_rhonin:0},
                                            {t.shimmer.node:0,t.ice_nova.node:1}))
     class_b = class_bs[0]
-    assert len(class_b) == len(class_.all_choices()), 'class choice count'
+    assert len(class_b) == len(class_.all_entries()), 'class choice count'
     assert len(class_bs) == 2220, 'class reqs count gen'
-    c_t1 = class_.all_choice_ids(0)
-    c_t2 = class_.all_choice_ids(8)
-    c_t3 = class_.all_choice_ids(20)
+    c_t1 = class_.all_entry_ids(0)
+    c_t2 = class_.all_entry_ids(8)
+    c_t3 = class_.all_entry_ids(20)
     c_t12 = c_t1 | c_t2; c_t123 = c_t12 | c_t3
     any_in = False; any_fc = False
     any_sm = False; any_re = False
@@ -84,11 +84,11 @@ if __name__ == '__main__':
     specbs = list(spec.generate_builds({t.apex_2:(1,2),t.rimecaster:2,t.glacial_attunement:(0,1),t.blizzard_1:0},
                                        {t.frigid_focus.node:0}))
     specb = specbs[0]
-    assert len(specb) == len(spec.all_choices()), 'spec choice count'
+    assert len(specb) == len(spec.all_entries()), 'spec choice count'
     assert len(specbs) == 1914, 'spec reqs count gen'
-    s_t1 = spec.all_choice_ids(0)
-    s_t2 = spec.all_choice_ids(8)
-    s_t3 = spec.all_choice_ids(20)
+    s_t1 = spec.all_entry_ids(0)
+    s_t2 = spec.all_entry_ids(8)
+    s_t3 = spec.all_entry_ids(20)
     s_t12 = s_t1 | s_t2; s_t123 = s_t12 | s_t3
     any_cs = False; any_gb = False
     for b in specbs:
