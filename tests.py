@@ -5,7 +5,7 @@ class Empty:
     pass
 
 if __name__ == '__main__':
-    req = requests.get('https://mimiron.raidbots.com/static/data/12.0.0.64529/talents.json')
+    req = requests.get('https://mimiron.raidbots.com/static/data/12.0.1.65337/talents.json')
     talents = TalentJSON(req.json())
     hero: TalentTree = talents.mage.frost.hero
     assert hero.count_builds() == 16, 'hero count'
@@ -72,20 +72,20 @@ if __name__ == '__main__':
 
     spec: TalentTree = talents.mage.frost.spec
     t.__dict__.update(spec.tokenized_names())
-    assert spec.count_builds() == 7780352, 'spec count'
-    assert spec.count_builds({t.frigid_focus:1}) == 3725708, 'ff'
-    assert spec.count_builds({t.frigid_focus:0}) == 7780352 - 3725708, 'no ff'
-    assert spec.count_builds({}, {t.frigid_focus.node:1}) == 7451416, 'ff node'
-    assert spec.count_builds({}, {t.frigid_focus.node:0}) == 7780352 - 7451416, 'no ff node'
+    assert spec.count_builds() == 23543036, 'spec count'
+    assert spec.count_builds({t.frigid_focus:1}) == 10245684, 'ff'
+    assert spec.count_builds({t.frigid_focus:0}) == 23543036 - 10245684, 'no ff'
+    assert spec.count_builds({}, {t.frigid_focus.node:1}) == 20491368, 'ff node'
+    assert spec.count_builds({}, {t.frigid_focus.node:0}) == 23543036 - 20491368, 'no ff node'
     assert spec.count_builds({t.blizzard_1:1,t.blizzard_2:1}) == 0, 'conflict'
-    assert spec.count_builds({t.icy_hand:1,t.flurry:0}) == 0, 'no link'
+    assert spec.count_builds({t.piercing_cold:1,t.flurry:0}) == 0, 'no link'
     assert spec.count_builds({t.apex_2:(1,2),t.rimecaster:2,t.glacial_attunement:(0,1),t.blizzard_1:0},
-                             {t.frigid_focus.node:0}) == 1914, 'spec reqs count'
+                             {t.frigid_focus.node:0}) == 52798, 'spec reqs count'
     specbs = list(spec.generate_builds({t.apex_2:(1,2),t.rimecaster:2,t.glacial_attunement:(0,1),t.blizzard_1:0},
                                        {t.frigid_focus.node:0}))
     specb = specbs[0]
     assert len(specb) == len(spec.all_entries()), 'spec choice count'
-    assert len(specbs) == 1914, 'spec reqs count gen'
+    assert len(specbs) == 52798, 'spec reqs count gen'
     s_t1 = spec.all_entry_ids(0)
     s_t2 = spec.all_entry_ids(8)
     s_t3 = spec.all_entry_ids(20)
@@ -97,7 +97,6 @@ if __name__ == '__main__':
         assert sum(v for k, v in b.items() if k in s_t1) >= 8, 'class tier 1'
         assert sum(v for k, v in b.items() if k in s_t12) >= 20, 'class tier 2'
         assert sum(v for k, v in b.items() if k in s_t123) == 34, 'class tier 3'
-        assert b[t.summon_water_elemental.id] == 0, 'no welly'
         assert 1 <= b[t.apex_2.id] <= 2, '1-2 apex2'
         assert b[t.rimecaster.id] == 2, '2 rimecaster'
         assert 0 <= b[t.glacial_attunement.id] <= 1, '0-1 ga'
@@ -106,8 +105,8 @@ if __name__ == '__main__':
         assert b[t.frigid_focus.id] + b[t.splintering_ray.id] == 0, 'no ray choice'
         assert b[t.cold_snap.id] + b[t.glacial_bulwark.id] <= 1, 'cold snap choice'
         assert b[t.apex_3.id] == 0 or b[t.apex_2.id] == 2, 'apex3 req 2 pts'
-        assert b[t.glacial_attunement.id] == 0 or b[t.fractured_frost.id] == 1 or b[t.piercing_cold.id] == 1, 'si req either'
-        assert b[t.summon_water_elemental.id] == 0, 'node w/o parents'
+        assert b[t.glacial_attunement.id] == 0 or b[t.fractured_frost.id] == 1 or b[t.improved_shatter.id] == 1, 'si req either'
+        assert b[t.freezing_winds.id] == 0, 'node w/o parents'
         any_cs = any_cs or b[t.cold_snap.id] == 1
         any_gb = any_gb or b[t.glacial_bulwark.id] == 1
     assert any_cs, 'one build w/ cold snap'
