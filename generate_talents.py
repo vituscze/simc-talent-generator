@@ -580,20 +580,11 @@ class TalentTree:
             assert 20 in self.tiers, 'Spec with nonstandard last gate'
             candidates = self.entry & self.tiers[20]
             assert len(candidates) == 1, 'More than one apex candidate'
+            node = list(candidates)[0]
+            assert len(node.choices) == 3, 'Apex with nonstandard entries'
+            for i in range(3):
+                result[f'apex_{i + 1}'] = node.choices[i]
 
-            def layers(depth: int, ns: set[TalentNode]) -> set[TalentNode]:
-                return ns if depth <= 0 else layers(depth - 1, ns | {n_node for node in ns for n_node in node.next})
-
-            for node in layers(2, candidates):
-                if node.is_entry:
-                    key = 'apex_1'
-                elif node.max_ranks == 2:
-                    key = 'apex_2'
-                else:
-                    key = 'apex_3'
-                assert len(node.choices) == 1
-                result[key] = node.choices[0]
-            assert {'apex_1','apex_2','apex_3'} <= set(result), 'Incomplete apex talents'
         return result
 
     def populate_globals(self, apex: bool=True) -> None:
