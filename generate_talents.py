@@ -184,15 +184,17 @@ class TalentNode:
         '''
         Yields all assignments that satisfy the requirements as given
         by TalentNode.apply_requirements. An assignment is given as a triple
-        (count: int, full: bool, change: list[tuple[int, int]]):
+        (count: int, full: bool, change: list[tuple[int, int]], choice: bool):
 
         * `count'   the total number of assigned points
         * `full'    whether the node was filled completely
         * `change'  list of valid ways to assign the points
+        * `choice'  whether the list represents a choice of point assignment
 
         If the change list contains no elements, no points need to be changed.
-        If it contains 2 or more elements, these represent the choices
-        that can be made when assigning the points. As an example, the list
+        If choice is True, the change list represents the choices that can be
+        made when assigning the points (as opposed to a single choice that
+        assigns to multiple choice ids). As an example, the list
 
             [(30,1),(40,1)]
 
@@ -203,16 +205,27 @@ class TalentNode:
         '''
         for pts in range(self.min_assign, self.max_assign + 1):
             assign: list[tuple[int, int]] = []
-            any_valid = False
-            for choice in self.choices:
-                if not (choice.min_assign <= pts <= choice.max_assign):
-                    continue
-                if all(c.min_assign <= 0 <= c.max_assign for c in self.choices if c != choice):
-                    any_valid = True
-                    if pts > 0:
-                        assign.append((choice.id, pts))
-            if any_valid:
-                yield pts, pts == self.max_ranks, assign
+            if self.type == 'tiered':
+                rem_pts = pts
+                for choice in self.choices:
+                    choice_pts = min(choice.max_ranks, rem_pts)
+                    rem_pts -= choice_pts
+                    if not (choice.min_assign <= choice_pts <= choice.max_assign):
+                        return
+                    if choice_pts > 0:
+                        assign.append((choice.id, choice_pts))
+                yield pts, pts == self.max_ranks, assign, False
+            else:
+                any_valid = False
+                for choice in self.choices:
+                    if not (choice.min_assign <= pts <= choice.max_assign):
+                        continue
+                    if all(c.min_assign <= 0 <= c.max_assign for c in self.choices if c != choice):
+                        any_valid = True
+                        if pts > 0:
+                            assign.append((choice.id, pts))
+                if any_valid:
+                    yield pts, pts == self.max_ranks, assign, len(assign) > 1 and self.type == 'choice'
 
 Assignment = list[tuple[int, int]]
 RawTalentBuild = tuple[Assignment, list[Assignment]]
@@ -384,7 +397,7 @@ class TalentTree:
 
         choice_reqs, node_reqs = self._normalize_reqs(tier, raw_choice_reqs, raw_node_reqs)
         total_nonempty_nodes = 0
-        node_assignments: dict[int, list[tuple[int, bool, Assignment]]] = {}
+        node_assignments: dict[int, list[tuple[int, bool, Assignment, bool]]] = {}
         for node in self.all_nodes(tier):
             node.apply_requirements(choice_reqs, node_reqs)
             node_assignments[node.id] = list(node.generate_assignments())
@@ -404,7 +417,7 @@ class TalentTree:
                     result[(count, unlock)].append((normal_assign, choice_assign))
             else:
                 node = queue.pop()
-                for extra_count, full, assign in node_assignments[node.id]:
+                for extra_count, full, assign, is_choice in node_assignments[node.id]:
                     new_subtree = subtree if extra_count == 0 else node.sub_tree
                     if extra_count > 0 and subtree is not None and new_subtree is not None and subtree != new_subtree:
                         # Already locked into another subtree, skip
@@ -414,8 +427,8 @@ class TalentTree:
                        visited | node.next_same if full else visited, count + extra_count,
                        unlock | node.next_diff if full else unlock, new_subtree,
                        nonempty_nodes if node.allows_empty else nonempty_nodes + 1,
-                       normal_assign + assign if len(assign) == 1 else normal_assign,
-                       choice_assign + [assign] if len(assign) > 1 else choice_assign)
+                       normal_assign + assign if not is_choice and len(assign) else normal_assign,
+                       choice_assign + [assign] if is_choice else choice_assign)
                 queue.append(node)
 
         go(list(initial), initial)
