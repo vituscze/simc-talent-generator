@@ -207,14 +207,17 @@ class TalentNode:
             assign: list[tuple[int, int]] = []
             if self.type == 'tiered':
                 rem_pts = pts
+                valid = True
                 for choice in self.choices:
                     choice_pts = min(choice.max_ranks, rem_pts)
                     rem_pts -= choice_pts
                     if not (choice.min_assign <= choice_pts <= choice.max_assign):
-                        return
+                        valid = False
+                        break
                     if choice_pts > 0:
                         assign.append((choice.id, choice_pts))
-                yield pts, pts == self.max_ranks, assign, False
+                if valid:
+                    yield pts, pts == self.max_ranks, assign, False
             else:
                 any_valid = False
                 for choice in self.choices:
