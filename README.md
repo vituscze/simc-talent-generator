@@ -7,7 +7,7 @@ This is a small python script that can be used to count, generate and output tal
 * Recent Python installation (tested with 3.13)
 * JSON with the talent data
     * The script is designed to work on JSON files provided by [Raidbots](https://www.raidbots.com/developers)
-    * In particular, you'll likely want to grab [the latest beta talent JSON](https://mimiron.raidbots.com/static/data/beta/talents.json)
+    * In particular, you'll likely want to grab [the latest live talent JSON](https://mimiron.raidbots.com/static/data/live/talents.json)
 
 ## Usage
 
