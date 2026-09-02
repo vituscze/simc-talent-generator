@@ -567,7 +567,7 @@ class TalentTree:
         add 'apex_1' through 'apex_3' to the resulting dictionary.
         '''
         result: dict[str, TalentEntry] = {}
-        entries = sorted(self.all_entries(), key=lambda e: (tokenize(e.name), e.id))
+        entries = sorted(self.all_entries(), key=lambda e: (tokenize(e.name), e.node.id, e.index))
         for name, iter in itertools.groupby(entries, key=lambda e: tokenize(e.name)):
             assert name, 'Empty entry name'
             group = list(iter)
